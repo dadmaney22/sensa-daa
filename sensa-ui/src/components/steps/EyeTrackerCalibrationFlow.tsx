@@ -28,6 +28,8 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
   const [gaze, setGaze] = useState<{ x: number; y: number; valid: boolean } | null>(null);
   const [gazeTrail, setGazeTrail] = useState<Array<{ x: number; y: number; id: number }>>([]);
   const [pointStatuses, setPointStatuses] = useState<Array<'pending' | 'collecting' | 'success' | 'fail'>>(['pending', 'pending', 'pending', 'pending', 'pending']);
+  // Per-point validation results returned by /validate/point — used for scatter plot
+  const [pointResults, setPointResults] = useState<Array<{ x: number; y: number; valid: boolean; mean_x?: number; mean_y?: number; accuracy_degrees?: number } | null>>([null, null, null, null, null]);
   const [validationStatus, setValidationStatus] = useState<'passed' | 'failed'>('passed');
   const [accuracy, setAccuracy] = useState<string>('--');
   const [precision, setPrecision] = useState<string>('--');
@@ -82,6 +84,7 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
       try {
         await fetch('http://localhost:8000/api/calibration/validate/start', { method: 'POST' });
         setPointStatuses(['pending', 'pending', 'pending', 'pending', 'pending']);
+        setPointResults([null, null, null, null, null]);
 
         for (let i = 0; i < DOT_COORDINATES.length; i++) {
           if (cancelled) return;
@@ -99,6 +102,7 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
             const data = await res.json();
             const ok = data.valid && data.valid_samples > 0;
             setPointStatuses(s => { const n = [...s]; n[i] = ok ? 'success' : 'fail'; return n; });
+            setPointResults(r => { const n = [...r]; n[i] = data; return n; });
           } catch (err) {
             console.error(`Error validating dot ${i}:`, err);
             setPointStatuses(s => { const n = [...s]; n[i] = 'fail'; return n; });
@@ -537,24 +541,92 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
                 <button className="w-full sm:w-auto rounded-lg border border-gray-300 bg-white px-6 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50">Run Validation Check</button>
               </div>
 
-              <div className="relative flex h-80 w-full items-center justify-center rounded-xl bg-gray-200 overflow-hidden shadow-inner">
-                 <div className="absolute left-1/2 top-1/2 -translate-x-1/2 translate-y-12 text-sm font-medium" style={{ color: validationStatus === 'passed' ? '#10B981' : '#EF4444' }}>
-                   Calibration point accuracy: {accuracy}
-                 </div>
+              {/* Validation scatter plot — target rings (numbered) + measured gaze dots */}
+              <div className="relative w-full rounded-xl bg-gray-100 overflow-hidden shadow-inner" style={{ paddingBottom: '45%' }}>
+                <div className="absolute inset-0">
+                  {/* SVG layer for offset lines */}
+                  <svg className="absolute inset-0 w-full h-full" style={{ pointerEvents: 'none' }}>
+                    {DOT_COORDINATES.map((coord, i) => {
+                      const pr = pointResults[i];
+                      if (!pr?.valid || pr.mean_x == null || pr.mean_y == null) return null;
+                      const tx = coord.x * 100;
+                      const ty = coord.y * 100;
+                      const gx = pr.mean_x * 100;
+                      const gy = pr.mean_y * 100;
+                      const color = (pr.accuracy_degrees ?? 99) <= passThreshold ? '#10B981' : '#EF4444';
+                      return (
+                        <line
+                          key={i}
+                          x1={`${tx}%`} y1={`${ty}%`}
+                          x2={`${gx}%`} y2={`${gy}%`}
+                          stroke={color} strokeWidth="1.5" strokeDasharray="4 3" opacity="0.7"
+                        />
+                      );
+                    })}
+                  </svg>
 
-                 {[
-                   { top: '15%', left: '15%' }, { top: '15%', right: '15%' },
-                   { top: '50%', left: '50%', center: true },
-                   { bottom: '15%', left: '15%' }, { bottom: '15%', right: '15%' }
-                 ].map((pos, i) => (
-                   <div key={i} className="absolute flex items-center justify-center" style={{ ...pos, transform: pos.center ? 'translate(-50%, -50%)' : 'none' }}>
-                     <div className="absolute h-8 w-8 rounded-full border-2 border-gray-400"></div>
-                     <div className={`absolute h-3 w-3 rounded-full bg-gray-400 opacity-60 translate-x-3 -translate-y-2`}></div>
-                     <div className={`absolute h-3 w-3 rounded-full bg-gray-400 opacity-60 -translate-x-2 translate-y-3`}></div>
-                     <div className={`absolute h-3 w-3 rounded-full bg-gray-400 opacity-60 -translate-x-3 -translate-y-3`}></div>
-                     <div className={`absolute h-6 w-6 rounded-full border border-gray-800 transition-all duration-300 ${validationStatus === 'passed' ? 'bg-[#10B981]' : 'bg-[#EF4444]'} ${validationStatus === 'failed' ? 'translate-x-2 translate-y-1 scale-110' : ''}`}></div>
-                   </div>
-                 ))}
+                  {/* Target rings with number labels */}
+                  {DOT_COORDINATES.map((coord, i) => {
+                    const pr = pointResults[i];
+                    const hasResult = pr != null;
+                    const passed = hasResult && pr.valid && (pr.accuracy_degrees ?? 99) <= passThreshold;
+                    const failed = hasResult && (!pr.valid || (pr.accuracy_degrees ?? 99) > passThreshold);
+                    const ringColor = !hasResult ? '#9CA3AF' : passed ? '#10B981' : '#EF4444';
+                    return (
+                      <div
+                        key={i}
+                        className="absolute flex items-center justify-center"
+                        style={{
+                          left: `${coord.x * 100}%`,
+                          top: `${coord.y * 100}%`,
+                          transform: 'translate(-50%, -50%)',
+                          width: 40, height: 40,
+                        }}
+                      >
+                        {/* Outer ring = target position */}
+                        <div className="absolute inset-0 rounded-full border-2 flex items-center justify-center"
+                          style={{ borderColor: ringColor }}>
+                          <span className="text-xs font-bold" style={{ color: ringColor }}>{i + 1}</span>
+                        </div>
+                        {/* Accuracy label below */}
+                        {hasResult && (
+                          <div className="absolute top-full mt-1 text-[10px] font-medium whitespace-nowrap"
+                            style={{ color: ringColor }}>
+                            {pr.valid ? `${pr.accuracy_degrees?.toFixed(1)}°` : 'no data'}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {/* Measured gaze dots */}
+                  {DOT_COORDINATES.map((_, i) => {
+                    const pr = pointResults[i];
+                    if (!pr?.valid || pr.mean_x == null || pr.mean_y == null) return null;
+                    const passed = (pr.accuracy_degrees ?? 99) <= passThreshold;
+                    return (
+                      <div
+                        key={i}
+                        className="absolute rounded-full"
+                        style={{
+                          left: `${pr.mean_x * 100}%`,
+                          top: `${pr.mean_y * 100}%`,
+                          transform: 'translate(-50%, -50%)',
+                          width: 12, height: 12,
+                          backgroundColor: passed ? '#10B981' : '#EF4444',
+                          boxShadow: `0 0 6px ${passed ? 'rgba(16,185,129,0.7)' : 'rgba(239,68,68,0.7)'}`,
+                        }}
+                      />
+                    );
+                  })}
+
+                  {/* Legend */}
+                  <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-4 text-[10px] text-gray-500">
+                    <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded-full border border-gray-400"></span> target</span>
+                    <span className="flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-full bg-[#10B981]"></span> measured gaze</span>
+                    <span className="flex items-center gap-1 text-green-600 font-medium">≤{passThreshold.toFixed(1)}° pass</span>
+                  </div>
+                </div>
               </div>
 
               <div className="rounded-lg border border-gray-200 bg-white">
@@ -576,8 +648,8 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
                     </span>
                   </div>
                   <div className="flex justify-between border-b border-gray-50 pb-2">
-                    <span className="text-gray-600 flex items-center gap-2"><div className={`h-1.5 w-1.5 rounded-full ${validationStatus === 'passed' ? 'bg-green-500' : 'bg-red-500'}`}></div> Point Passed</span>
-                    <span className="font-semibold text-gray-700">
+                    <span className="text-gray-600 flex items-center gap-2"><div className={`h-1.5 w-1.5 rounded-full ${validationStatus === 'passed' ? 'bg-green-500' : 'bg-red-500'}`}></div> Points detected</span>
+                    <span className="font-semibold text-gray-700" title="Number of points where eyes were actually seen (gaze samples captured)">
                       {validPoints} of 5
                     </span>
                   </div>

@@ -223,6 +223,7 @@ async def validate_point(point: PointRequest):
     result = {
         "x": point.x, "y": point.y, "valid": True, "valid_samples": valid_samples,
         "accuracy_degrees": acc_deg, "precision_degrees": prec_deg,
+        "mean_x": mean_x, "mean_y": mean_y,
     }
     _validation_points.append(result)
     return result
