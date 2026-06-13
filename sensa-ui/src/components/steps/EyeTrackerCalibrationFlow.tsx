@@ -524,7 +524,7 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
                   </div>
                   <div className="flex justify-between pt-1">
                     <span className="text-gray-600 flex items-center gap-2"><div className={`h-1.5 w-1.5 rounded-full ${validationStatus === 'passed' ? 'bg-green-500' : 'bg-red-500'}`}></div> Overall result</span>
-                    <span className={`font-bold uppercase ${validationStatus === 'passed' ? 'text-green-600' : 'text-red-600'}`}>\n                      {validationStatus === 'passed' ? 'Passed' : 'Failed'}\n                    </span>
+                    <span className={`font-bold uppercase ${validationStatus === 'passed' ? 'text-green-600' : 'text-red-600'}`}>{validationStatus === 'passed' ? 'Passed' : 'Failed'}</span>
                   </div>
                 </div>
                 <div className="border-t border-gray-100 p-3">

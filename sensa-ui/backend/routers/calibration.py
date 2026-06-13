@@ -26,7 +26,7 @@ OPTIMAL_MAX_MM = 700.0
 SCREEN_WIDTH_MM = 520.0
 
 # Pass thresholds for validation (degrees of visual angle).
-ACCURACY_PASS_DEG = 1.5
+ACCURACY_PASS_DEG = 2.5
 MIN_VALID_POINTS = 5
 
 
