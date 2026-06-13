@@ -50,19 +50,17 @@ async def position_stream(websocket: WebSocket):
     else:
         use_mock_data = True
 
-    # --- MOCK / FALLBACK MODE (Adjusted for closer 550-700mm threshold) ---
+    # --- MOCK / FALLBACK MODE ---
     if use_mock_data:
         try:
-            mock_z = 900.0  # Start closer than before
             while True:
-                # Decelerate and settle right in the sweet spot (~620mm)
-                mock_z = max(620.0, mock_z - 5.0) 
                 payload = {
-                    "distance_mm": mock_z,
-                    "status": "optimal" if 550 <= mock_z <= 700 else "adjust"
+                    "distance_mm": -1.0,
+                    "status": "no_hardware",
+                    "mock": True
                 }
                 await websocket.send_json(payload)
-                await asyncio.sleep(0.05)
+                await asyncio.sleep(0.5)
         except WebSocketDisconnect:
             return
 

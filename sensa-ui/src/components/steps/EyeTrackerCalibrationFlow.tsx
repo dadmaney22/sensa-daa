@@ -46,7 +46,7 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
         try {
           const data = JSON.parse(event.data);
           setLiveDistance(Math.round(data.distance_mm));
-          setPositionReady(data.status === 'optimal');
+          setPositionReady(data.status === 'optimal' && !data.mock);
           setRawWsStatus(data.status);
           setWsMessageCount(c => c + 1);
         } catch (err) {
@@ -307,8 +307,14 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
                     </div>
                   </div>
 
-                  <div className={`z-10 mb-8 text-lg font-medium transition-colors ${positionReady ? 'text-[#10B981]' : 'text-[#F59E0B]'}`}>
-                    {positionReady ? 'Position looks good (Optimal range)' : liveDistance ? `Target Distance: 900mm | Current: ${liveDistance}mm` : 'Waiting for sensor input...'}
+                  <div className={`z-10 mb-8 text-lg font-medium transition-colors ${positionReady ? 'text-[#10B981]' : rawWsStatus === 'no_hardware' ? 'text-[#EF4444]' : 'text-[#F59E0B]'}`}>
+                    {positionReady
+                      ? 'Position looks good (Optimal range)'
+                      : rawWsStatus === 'no_hardware'
+                        ? 'No eye tracker detected — check USB connection'
+                        : liveDistance && liveDistance > 0
+                          ? `Target Distance: 600mm | Current: ${liveDistance}mm`
+                          : 'Looking for eyes...'}
                   </div>
 
                   <button
