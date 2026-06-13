@@ -32,6 +32,9 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
   const [accuracy, setAccuracy] = useState<string>('--');
   const [precision, setPrecision] = useState<string>('--');
   const [validPoints, setValidPoints] = useState<number>(0);
+  // Accuracy pass threshold (degrees of visual angle). Default 2.5° suits the
+  // consumer-grade 4C; researchers can tighten/loosen it per study.
+  const [passThreshold, setPassThreshold] = useState<number>(2.5);
 
   // Fetch hardware status once on mount
   useEffect(() => {
@@ -104,7 +107,7 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
         }
 
         if (cancelled) return;
-        const response = await fetch('http://localhost:8000/api/calibration/validate/finish', { method: 'POST' });
+        const response = await fetch(`http://localhost:8000/api/calibration/validate/finish?accuracy_pass_deg=${passThreshold}`, { method: 'POST' });
         const results = await response.json();
 
         if (results.status === 'success') {
@@ -203,22 +206,43 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
             />
           ))}
 
-          {/* Live gaze cursor */}
+          {/* Live gaze cursor — sized to match Tobii's own gaze bubble:
+              a large translucent ring with a solid inner dot. */}
           {gaze && (
             <div
-              className="pointer-events-none absolute rounded-full transition-all duration-75"
+              className="pointer-events-none absolute transition-all duration-75"
               style={{
                 left: `${gaze.x * 100}%`,
                 top: `${gaze.y * 100}%`,
-                width: 22,
-                height: 22,
+                width: 120,
+                height: 120,
                 transform: 'translate(-50%, -50%)',
-                border: '2px solid #22D3EE',
-                backgroundColor: gaze.valid ? 'rgba(34,211,238,0.35)' : 'transparent',
-                boxShadow: '0 0 12px rgba(34,211,238,0.7)',
                 opacity: gaze.valid ? 1 : 0.3,
               }}
-            />
+            >
+              {/* Outer bubble */}
+              <div
+                className="absolute inset-0 rounded-full"
+                style={{
+                  border: '3px solid #22D3EE',
+                  backgroundColor: gaze.valid ? 'rgba(34,211,238,0.15)' : 'transparent',
+                  boxShadow: '0 0 24px rgba(34,211,238,0.6)',
+                }}
+              />
+              {/* Inner dot */}
+              <div
+                className="absolute rounded-full"
+                style={{
+                  left: '50%',
+                  top: '50%',
+                  width: 28,
+                  height: 28,
+                  transform: 'translate(-50%, -50%)',
+                  backgroundColor: '#22D3EE',
+                  boxShadow: '0 0 12px rgba(34,211,238,0.9)',
+                }}
+              />
+            </div>
           )}
 
           {/* Gaze legend */}
@@ -433,6 +457,41 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
                     <span className="text-gray-500">5 dots will appear; look at each so we can measure real accuracy. Make sure your browser is maximized.</span>
                   </div>
                 </div>
+
+                {/* Pass threshold configuration */}
+                <div className="flex items-start gap-3 border-t border-gray-200 pt-4">
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gray-400 text-xs font-bold text-white">3</div>
+                  <div className="w-full text-sm text-gray-700">
+                    <span className="block font-semibold text-gray-900">Pass threshold</span>
+                    <span className="text-gray-500">Maximum average error (degrees of visual angle) to count as a pass. The Tobii 4C is a consumer device that typically reaches 2–3°, so the default is 2.5°.</span>
+                    <div className="mt-3 flex items-center gap-4">
+                      <input
+                        type="range"
+                        min={0.5}
+                        max={5}
+                        step={0.1}
+                        value={passThreshold}
+                        onChange={(e) => setPassThreshold(parseFloat(e.target.value))}
+                        className="h-2 w-full max-w-xs cursor-pointer accent-violet-600"
+                      />
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          min={0.5}
+                          max={5}
+                          step={0.1}
+                          value={passThreshold}
+                          onChange={(e) => {
+                            const v = parseFloat(e.target.value);
+                            if (!Number.isNaN(v)) setPassThreshold(Math.min(5, Math.max(0.5, v)));
+                          }}
+                          className="w-16 rounded border border-gray-300 px-2 py-1 text-sm text-gray-800 focus:border-violet-500 focus:outline-none"
+                        />
+                        <span className="text-sm font-medium text-gray-500">°</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <div className="flex justify-center pt-2">
@@ -519,8 +578,12 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
                   <div className="flex justify-between border-b border-gray-50 pb-2">
                     <span className="text-gray-600 flex items-center gap-2"><div className={`h-1.5 w-1.5 rounded-full ${validationStatus === 'passed' ? 'bg-green-500' : 'bg-red-500'}`}></div> Point Passed</span>
                     <span className="font-semibold text-gray-700">
-                      {validPoints} of 5   {/* <--- Change this to read dynamic validPoints */}
+                      {validPoints} of 5
                     </span>
+                  </div>
+                  <div className="flex justify-between border-b border-gray-50 pb-2">
+                    <span className="text-gray-600 flex items-center gap-2"><div className="h-1.5 w-1.5 rounded-full bg-gray-400"></div> Pass threshold</span>
+                    <span className="font-semibold text-gray-700">≤ {passThreshold.toFixed(1)}°</span>
                   </div>
                   <div className="flex justify-between pt-1">
                     <span className="text-gray-600 flex items-center gap-2"><div className={`h-1.5 w-1.5 rounded-full ${validationStatus === 'passed' ? 'bg-green-500' : 'bg-red-500'}`}></div> Overall result</span>

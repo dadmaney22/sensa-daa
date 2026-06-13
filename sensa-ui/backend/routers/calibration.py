@@ -25,7 +25,9 @@ OPTIMAL_MAX_MM = 700.0
 # of visual angle during validation. Adjust to match the study monitor.
 SCREEN_WIDTH_MM = 520.0
 
-# Pass thresholds for validation (degrees of visual angle).
+# Default pass threshold for validation (degrees of visual angle). The 4C is a
+# consumer device that typically achieves 2-3° in real conditions, so 2.5° is a
+# reasonable default. The frontend may override this per validation pass.
 ACCURACY_PASS_DEG = 2.5
 MIN_VALID_POINTS = 5
 
@@ -227,10 +229,13 @@ async def validate_point(point: PointRequest):
 
 
 @router.post("/validate/finish")
-async def validate_finish():
+async def validate_finish(accuracy_pass_deg: float = ACCURACY_PASS_DEG):
     """Stop the gaze stream and aggregate the validation pass into a real
-    accuracy/precision report."""
+    accuracy/precision report. The pass threshold (degrees) may be overridden
+    via the `accuracy_pass_deg` query param; defaults to ACCURACY_PASS_DEG."""
     gaze_stream.stop()
+
+    threshold = accuracy_pass_deg if accuracy_pass_deg > 0 else ACCURACY_PASS_DEG
 
     valid = [p for p in _validation_points if p.get("valid")]
     valid_count = len(valid)
@@ -239,13 +244,14 @@ async def validate_finish():
         return {
             "status": "success", "overall_quality": "Fail",
             "accuracy_degrees": 0.0, "precision_degrees": 0.0,
-            "valid_count": 0, "points": _validation_points,
+            "valid_count": 0, "threshold_degrees": threshold,
+            "points": _validation_points,
         }
 
     avg_acc = sum(p["accuracy_degrees"] for p in valid) / valid_count
     avg_prec = sum(p["precision_degrees"] for p in valid) / valid_count
 
-    overall = "Pass" if (valid_count >= MIN_VALID_POINTS and avg_acc <= ACCURACY_PASS_DEG) else "Fail"
+    overall = "Pass" if (valid_count >= MIN_VALID_POINTS and avg_acc <= threshold) else "Fail"
 
     return {
         "status": "success",
@@ -253,5 +259,6 @@ async def validate_finish():
         "accuracy_degrees": avg_acc,
         "precision_degrees": avg_prec,
         "valid_count": valid_count,
+        "threshold_degrees": threshold,
         "points": _validation_points,
     }
