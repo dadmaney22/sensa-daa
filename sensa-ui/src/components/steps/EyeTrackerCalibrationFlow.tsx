@@ -36,7 +36,7 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
   const [validPoints, setValidPoints] = useState<number>(0);
   // Accuracy pass threshold (degrees of visual angle). Default 2.5° suits the
   // consumer-grade 4C; researchers can tighten/loosen it per study.
-  const [passThreshold, setPassThreshold] = useState<number>(2.5);
+  const [passThreshold, setPassThreshold] = useState<number>(3.0);
 
   // Fetch hardware status once on mount
   useEffect(() => {
@@ -467,7 +467,7 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
                   <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gray-400 text-xs font-bold text-white">3</div>
                   <div className="w-full text-sm text-gray-700">
                     <span className="block font-semibold text-gray-900">Pass threshold</span>
-                    <span className="text-gray-500">Maximum average error (degrees of visual angle) to count as a pass. The Tobii 4C is a consumer device that typically reaches 2–3°, so the default is 2.5°.</span>
+                    <span className="text-gray-500">Maximum average error (degrees of visual angle) to count as a pass. The Tobii 4C is a consumer device that typically reaches 2–3°, so the default is 3°.</span>
                     <div className="mt-3 flex items-center gap-4">
                       <input
                         type="range"

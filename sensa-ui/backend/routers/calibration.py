@@ -27,8 +27,8 @@ SCREEN_WIDTH_MM = 520.0
 
 # Default pass threshold for validation (degrees of visual angle). The 4C is a
 # consumer device that typically achieves 2-3° in real conditions, so 2.5° is a
-# reasonable default. The frontend may override this per validation pass.
-ACCURACY_PASS_DEG = 2.5
+# reasonable default (3°). The frontend may override this per validation pass.
+ACCURACY_PASS_DEG = 3.0
 MIN_VALID_POINTS = 5
 
 
