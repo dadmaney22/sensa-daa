@@ -538,7 +538,12 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
                     <AlertCircle className="h-4 w-4" /> Recalibrate Eye Tracker
                   </button>
                 )}
-                <button className="w-full sm:w-auto rounded-lg border border-gray-300 bg-white px-6 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50">Run Validation Check</button>
+                <button
+                  onClick={() => setCalibrationPhase('running')}
+                  className="w-full sm:w-auto rounded-lg border border-gray-300 bg-white px-6 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  Run Validation Check
+                </button>
               </div>
 
               {/* Validation scatter plot — target rings (numbered) + measured gaze dots */}
