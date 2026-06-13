@@ -6,12 +6,13 @@ from typing import Optional
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
 from pydantic import BaseModel
 
-from services.tobii_stream import (
+from services.tracker import (
     find_tracker,
     launch_tobii_calibration,
     position_stream,
     gaze_stream,
     _bridge_available,
+    active_backend,
 )
 
 logger = logging.getLogger(__name__)
@@ -55,7 +56,7 @@ def _avg_distance_mm(sample: dict) -> Optional[float]:
 
 @router.get("/status")
 async def calibration_status():
-    """Report whether the Stream Engine bridge and a Tobii device are present."""
+    """Report whether a tracker backend and a Tobii device are present."""
     bridge = _bridge_available()
     info = find_tracker() if bridge else None
     return {
@@ -63,6 +64,7 @@ async def calibration_status():
         "device_connected": info is not None,
         "model": info.model if info else None,
         "serial": info.serial_number if info else None,
+        "backend": active_backend(),  # "stream_engine" | "pro_sdk" | "none"
     }
 
 
