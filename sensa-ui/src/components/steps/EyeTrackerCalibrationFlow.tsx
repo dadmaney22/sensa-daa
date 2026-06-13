@@ -100,7 +100,8 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
               body: JSON.stringify(DOT_COORDINATES[i]),
             });
             const data = await res.json();
-            const ok = data.valid && data.valid_samples > 0;
+            // A point only "passes" (turns green) if its accuracy is within the threshold.
+            const ok = data.valid && data.valid_samples > 0 && (data.accuracy_degrees ?? Infinity) <= passThreshold;
             setPointStatuses(s => { const n = [...s]; n[i] = ok ? 'success' : 'fail'; return n; });
             setPointResults(r => { const n = [...r]; n[i] = data; return n; });
           } catch (err) {
