@@ -25,6 +25,8 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
 
   const [calibrationPhase, setCalibrationPhase] = useState<'idle' | 'running' | 'done'>('idle');
   const [activeDot, setActiveDot] = useState(-1);
+  const [gaze, setGaze] = useState<{ x: number; y: number; valid: boolean } | null>(null);
+  const [gazeTrail, setGazeTrail] = useState<Array<{ x: number; y: number; id: number }>>([]);
   const [pointStatuses, setPointStatuses] = useState<Array<'pending' | 'collecting' | 'success' | 'fail'>>(['pending', 'pending', 'pending', 'pending', 'pending']);
   const [validationStatus, setValidationStatus] = useState<'passed' | 'failed'>('passed');
   const [accuracy, setAccuracy] = useState<string>('--');
@@ -127,6 +129,30 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
     return () => { cancelled = true; };
   }, [calibrationPhase]);
 
+  // Live gaze cursor — only while the fullscreen validation overlay is up.
+  useEffect(() => {
+    if (calibrationPhase !== 'running') {
+      setGaze(null);
+      setGazeTrail([]);
+      return;
+    }
+    let nextId = 0;
+    const ws = new WebSocket('ws://localhost:8000/api/calibration/ws/gaze');
+    ws.onmessage = (event) => {
+      try {
+        const d = JSON.parse(event.data);
+        if (d.valid) {
+          setGaze({ x: d.x, y: d.y, valid: true });
+          setGazeTrail(t => [...t.slice(-12), { x: d.x, y: d.y, id: nextId++ }]);
+        } else {
+          setGaze(g => (g ? { ...g, valid: false } : null));
+        }
+      } catch { /* ignore */ }
+    };
+    ws.onerror = () => { /* stream may not be up yet */ };
+    return () => ws.close();
+  }, [calibrationPhase]);
+
   return (
     <>
       {/* ==================== FULL SCREEN CALIBRATION OVERLAY ==================== */}
@@ -160,6 +186,48 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
               />
             );
           })}
+
+          {/* Live gaze trail */}
+          {gazeTrail.map((p, idx) => (
+            <div
+              key={p.id}
+              className="pointer-events-none absolute rounded-full bg-cyan-400"
+              style={{
+                left: `${p.x * 100}%`,
+                top: `${p.y * 100}%`,
+                width: 10,
+                height: 10,
+                transform: 'translate(-50%, -50%)',
+                opacity: ((idx + 1) / gazeTrail.length) * 0.4,
+              }}
+            />
+          ))}
+
+          {/* Live gaze cursor */}
+          {gaze && (
+            <div
+              className="pointer-events-none absolute rounded-full transition-all duration-75"
+              style={{
+                left: `${gaze.x * 100}%`,
+                top: `${gaze.y * 100}%`,
+                width: 22,
+                height: 22,
+                transform: 'translate(-50%, -50%)',
+                border: '2px solid #22D3EE',
+                backgroundColor: gaze.valid ? 'rgba(34,211,238,0.35)' : 'transparent',
+                boxShadow: '0 0 12px rgba(34,211,238,0.7)',
+                opacity: gaze.valid ? 1 : 0.3,
+              }}
+            />
+          )}
+
+          {/* Gaze legend */}
+          <div className="absolute bottom-8 left-1/2 -translate-x-1/2 text-center text-xs text-gray-500">
+            <span className="inline-flex items-center gap-1.5">
+              <span className="inline-block h-2.5 w-2.5 rounded-full bg-cyan-400" /> live gaze
+            </span>
+            {gaze && !gaze.valid && <span className="ml-3 text-yellow-500">eyes not detected</span>}
+          </div>
         </div>
       )}
 

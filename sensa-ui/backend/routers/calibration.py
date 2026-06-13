@@ -131,6 +131,40 @@ async def launch_tobii():
     }
 
 
+@router.websocket("/ws/gaze")
+async def gaze_ws(websocket: WebSocket):
+    """Stream the live gaze point (normalized [0,1] on the display) to the
+    frontend so the user can see where they're looking. Reads the shared gaze
+    buffer that the validation flow also uses."""
+    await websocket.accept()
+    try:
+        while True:
+            sample = gaze_stream.latest() if gaze_stream.is_running else None
+            if sample is None:
+                await websocket.send_json({"valid": False})
+            else:
+                xs, ys = [], []
+                if sample.get("left_gaze_point_validity"):
+                    gp = sample.get("left_gaze_point_on_display_area")
+                    if gp:
+                        xs.append(gp[0]); ys.append(gp[1])
+                if sample.get("right_gaze_point_validity"):
+                    gp = sample.get("right_gaze_point_on_display_area")
+                    if gp:
+                        xs.append(gp[0]); ys.append(gp[1])
+                if xs:
+                    await websocket.send_json({
+                        "valid": True,
+                        "x": sum(xs) / len(xs),
+                        "y": sum(ys) / len(ys),
+                    })
+                else:
+                    await websocket.send_json({"valid": False})
+            await asyncio.sleep(0.03)
+    except WebSocketDisconnect:
+        return
+
+
 @router.post("/validate/start")
 async def validate_start():
     """Begin a validation pass by starting the live gaze stream."""
