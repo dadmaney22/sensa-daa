@@ -112,6 +112,15 @@ async def position_stream(websocket: WebSocket):
         except:
             pass
 
+@router.get("/status")
+async def calibration_status():
+    if not TOBII_PRO_AVAILABLE:
+        return {"sdk_available": False, "tracker_found": False, "mock_mode": True}
+    trackers = tr.find_all_eyetrackers()
+    found = len(trackers) > 0
+    return {"sdk_available": True, "tracker_found": found, "mock_mode": not found}
+
+
 @router.post("/start")
 async def start_calibration():
     global calibration_instance, current_tracker

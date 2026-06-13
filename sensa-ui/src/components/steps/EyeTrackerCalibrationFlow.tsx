@@ -17,12 +17,25 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
   const [positionReady, setPositionReady] = useState(false);
   const [liveDistance, setLiveDistance] = useState<number | null>(null);
 
+  const [isMockMode, setIsMockMode] = useState<boolean | null>(null);
+  const [wsMessageCount, setWsMessageCount] = useState(0);
+  const [rawWsStatus, setRawWsStatus] = useState<string>('--');
+
   const [calibrationPhase, setCalibrationPhase] = useState<'idle' | 'running' | 'done'>('idle');
   const [activeDot, setActiveDot] = useState(-1);
+  const [pointStatuses, setPointStatuses] = useState<Array<'pending' | 'collecting' | 'success' | 'fail'>>(['pending', 'pending', 'pending', 'pending', 'pending']);
   const [validationStatus, setValidationStatus] = useState<'passed' | 'failed'>('passed');
   const [accuracy, setAccuracy] = useState<string>('--');
   const [precision, setPrecision] = useState<string>('--');
   const [validPoints, setValidPoints] = useState<number>(0);
+
+  // Fetch hardware status once on mount
+  useEffect(() => {
+    fetch('http://localhost:8000/api/calibration/status')
+      .then(r => r.json())
+      .then(d => setIsMockMode(d.mock_mode))
+      .catch(() => setIsMockMode(null));
+  }, []);
 
   // 1. Live Distance Positioning WebSocket Pipeline (Step 1b)
   useEffect(() => {
@@ -34,6 +47,8 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
           const data = JSON.parse(event.data);
           setLiveDistance(Math.round(data.distance_mm));
           setPositionReady(data.status === 'optimal');
+          setRawWsStatus(data.status);
+          setWsMessageCount(c => c + 1);
         } catch (err) {
           console.error("Failed to parse positioning data:", err);
         }
@@ -56,21 +71,27 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
         try {
           // Tell hardware to enter calibration mode
           await fetch('http://localhost:8000/api/calibration/start', { method: 'POST' });
-          
+
+          setPointStatuses(['pending', 'pending', 'pending', 'pending', 'pending']);
           let currentDot = 0;
           setActiveDot(0);
-          
+          setPointStatuses(s => { const n = [...s]; n[0] = 'collecting'; return n; });
+
           // Helper function to send target look point to Tobii hardware
           const collectPoint = async (dotIdx: number) => {
             const coords = DOT_COORDINATES[dotIdx];
             try {
-              await fetch('http://localhost:8000/api/calibration/collect', {
+              const res = await fetch('http://localhost:8000/api/calibration/collect', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(coords),
               });
+              const data = await res.json();
+              const ok = data.status === 'success' || data.status === 'mock_point_collected';
+              setPointStatuses(s => { const n = [...s]; n[dotIdx] = ok ? 'success' : 'fail'; return n; });
             } catch (err) {
               console.error(`Error collecting dot ${dotIdx}:`, err);
+              setPointStatuses(s => { const n = [...s]; n[dotIdx] = 'fail'; return n; });
             }
           };
 
@@ -84,7 +105,7 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
               finishCalibration();
             } else {
               setActiveDot(currentDot);
-              // Collect coordinate midway through the 4-second dot window
+              setPointStatuses(s => { const n = [...s]; n[currentDot] = 'collecting'; return n; });
               const targetDot = currentDot;
               setTimeout(() => collectPoint(targetDot), 2000);
             }
@@ -143,11 +164,23 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
           </div>
 
           {/* Full Screen Calibration Targets */}
-          <div className="absolute left-16 top-16 h-8 w-8 rounded-full border-2 transition-all duration-1000 ease-in-out" style={{ backgroundColor: activeDot === 0 ? '#7C3AED' : 'transparent', borderColor: activeDot === 0 ? '#7C3AED' : '#374151', transform: activeDot === 0 ? 'scale(1.2)' : 'scale(1)' }}></div>
-          <div className="absolute right-16 top-16 h-8 w-8 rounded-full border-2 transition-all duration-1000 ease-in-out" style={{ backgroundColor: activeDot === 1 ? '#7C3AED' : 'transparent', borderColor: activeDot === 1 ? '#7C3AED' : '#374151', transform: activeDot === 1 ? 'scale(1.2)' : 'scale(1)' }}></div>
-          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-8 w-8 rounded-full border-2 transition-all duration-1000 ease-in-out" style={{ backgroundColor: activeDot === 2 ? '#7C3AED' : 'transparent', borderColor: activeDot === 2 ? '#7C3AED' : '#374151', transform: activeDot === 2 ? 'scale(1.2)' : 'scale(1)' }}></div>
-          <div className="absolute bottom-16 left-16 h-8 w-8 rounded-full border-2 transition-all duration-1000 ease-in-out" style={{ backgroundColor: activeDot === 3 ? '#7C3AED' : 'transparent', borderColor: activeDot === 3 ? '#7C3AED' : '#374151', transform: activeDot === 3 ? 'scale(1.2)' : 'scale(1)' }}></div>
-          <div className="absolute bottom-16 right-16 h-8 w-8 rounded-full border-2 transition-all duration-1000 ease-in-out" style={{ backgroundColor: activeDot === 4 ? '#7C3AED' : 'transparent', borderColor: activeDot === 4 ? '#7C3AED' : '#374151', transform: activeDot === 4 ? 'scale(1.2)' : 'scale(1)' }}></div>
+          {[
+            'absolute left-16 top-16',
+            'absolute right-16 top-16',
+            'absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2',
+            'absolute bottom-16 left-16',
+            'absolute bottom-16 right-16',
+          ].map((cls, i) => {
+            const st = pointStatuses[i];
+            const isActive = activeDot === i;
+            const bg = isActive ? '#7C3AED' : st === 'success' ? '#10B981' : st === 'fail' ? '#EF4444' : 'transparent';
+            const border = isActive ? '#7C3AED' : st === 'success' ? '#10B981' : st === 'fail' ? '#EF4444' : '#374151';
+            return (
+              <div key={i} className={`${cls} h-8 w-8 rounded-full border-2 transition-all duration-700 ease-in-out`}
+                style={{ backgroundColor: bg, borderColor: border, transform: isActive ? 'scale(1.2)' : 'scale(1)' }}
+              />
+            );
+          })}
         </div>
       )}
 
@@ -258,11 +291,6 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
           {/* STEP 1b: SELF CALIBRATION TRACKING */}
           {step === 1 && positioningPhase === 'tracking' && (
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
-               <div className="flex justify-end">
-                 <span className="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded">
-                  Live Tracker Metric: {liveDistance !== null ? (liveDistance === -1 ? 'Looking for eyes...' : `${liveDistance} mm`) : 'Connecting to hardware...'}
-                 </span>
-               </div>
 
                <div className="relative flex w-full flex-col items-center justify-center overflow-hidden rounded-2xl bg-[#3B3E46] py-16 text-center shadow-inner">
                   <div className="absolute top-1/2 w-full border-t border-dashed border-gray-500/30"></div>
@@ -283,7 +311,7 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
                     {positionReady ? 'Position looks good (Optimal range)' : liveDistance ? `Target Distance: 900mm | Current: ${liveDistance}mm` : 'Waiting for sensor input...'}
                   </div>
 
-                  <button 
+                  <button
                     disabled={!positionReady}
                     onClick={() => setStep(2)}
                     className="z-10 w-full max-w-xs rounded-lg bg-violet-600 py-3.5 text-sm font-bold text-white transition-all hover:bg-violet-700 disabled:bg-violet-400 disabled:opacity-50"
@@ -291,6 +319,21 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
                     Go to Calibration
                   </button>
                 </div>
+
+              {/* Debug panel */}
+              <div className="rounded-lg border border-gray-300 bg-gray-950 p-3 font-mono text-xs text-gray-300">
+                <div className="mb-2 flex items-center gap-2">
+                  <span className="font-bold text-gray-400">EYE TRACKER DEBUG</span>
+                  {isMockMode === null && <span className="rounded bg-gray-700 px-1.5 py-0.5 text-gray-400">checking...</span>}
+                  {isMockMode === true && <span className="rounded bg-orange-600 px-1.5 py-0.5 text-white">MOCK MODE — no hardware</span>}
+                  {isMockMode === false && <span className="rounded bg-green-700 px-1.5 py-0.5 text-white">HARDWARE CONNECTED</span>}
+                </div>
+                <div className="space-y-1 text-gray-400">
+                  <div>distance_mm: <span className="text-white">{liveDistance !== null ? (liveDistance === -1 ? 'no eyes detected' : `${liveDistance}`) : 'waiting...'}</span></div>
+                  <div>status: <span className={rawWsStatus === 'optimal' ? 'text-green-400' : 'text-yellow-400'}>{rawWsStatus}</span></div>
+                  <div>ws messages received: <span className="text-white">{wsMessageCount}</span></div>
+                </div>
+              </div>
             </div>
           )}
 
