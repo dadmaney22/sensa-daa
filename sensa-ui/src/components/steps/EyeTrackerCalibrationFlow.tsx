@@ -3,11 +3,11 @@ import { CheckCircle2, Check, XCircle, AlertCircle, CircleDot } from 'lucide-rea
 import calibrationDiagram from '../../assets/eyetrackpos.png';
 
 const DOT_COORDINATES = [
-  { x: 0.1, y: 0.1 }, // Dot 0: Top-Left
-  { x: 0.9, y: 0.1 }, // Dot 1: Top-Right
-  { x: 0.5, y: 0.5 }, // Dot 2: Center
-  { x: 0.1, y: 0.9 }, // Dot 3: Bottom-Left
-  { x: 0.9, y: 0.9 }, // Dot 4: Bottom-Right
+  { x: 0.15, y: 0.15 }, // Dot 0: Top-Left
+  { x: 0.85, y: 0.15 }, // Dot 1: Top-Right
+  { x: 0.5,  y: 0.5  }, // Dot 2: Center
+  { x: 0.15, y: 0.85 }, // Dot 3: Bottom-Left
+  { x: 0.85, y: 0.85 }, // Dot 4: Bottom-Right
 ];
 
 export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () => void }) {
@@ -233,17 +233,17 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
                   boxShadow: '0 0 24px rgba(34,211,238,0.6)',
                 }}
               />
-              {/* Inner dot */}
+              {/* Inner dot — small crosshair-style, stays subtle */}
               <div
                 className="absolute rounded-full"
                 style={{
                   left: '50%',
                   top: '50%',
-                  width: 28,
-                  height: 28,
+                  width: 8,
+                  height: 8,
                   transform: 'translate(-50%, -50%)',
-                  backgroundColor: '#22D3EE',
-                  boxShadow: '0 0 12px rgba(34,211,238,0.9)',
+                  backgroundColor: 'rgba(34,211,238,0.6)',
+                  boxShadow: '0 0 6px rgba(34,211,238,0.5)',
                 }}
               />
             </div>
