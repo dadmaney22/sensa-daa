@@ -35,6 +35,16 @@ _DLL_SEARCH_PATHS = [
     r"C:\Program Files (x86)\Tobii\Troubleshooter\tobii_stream_engine.dll",
 ]
 
+# Known Tobii calibration / configuration executables, searched in order.
+# The 4C's gaze-model calibration is owned by Tobii's own software; we just
+# launch whichever one is installed.
+_CALIBRATION_EXE_PATHS = [
+    r"C:\Program Files (x86)\Tobii\Tobii EyeX Config\Tobii EyeX Configuration.exe",
+    r"C:\Program Files (x86)\Tobii\Tobii EyeX Interaction\Tobii EyeX Interaction.exe",
+    r"C:\Program Files\Tobii\Tobii Eye Tracking\TobiiExperience.exe",
+    r"C:\Program Files (x86)\Tobii\Tobii Eye Tracking\TobiiExperience.exe",
+]
+
 
 def _find_dll() -> Optional[str]:
     for p in _DLL_SEARCH_PATHS:
@@ -238,5 +248,142 @@ class GazeRecorder:
             pass
 
 
-# Module-level singleton
+# ---------------------------------------------------------------------------
+# Live stream (positioning + validation)
+# ---------------------------------------------------------------------------
+
+class LiveStream:
+    """
+    Runs the 32-bit bridge in a given mode ("position" or "stream") and keeps a
+    thread-safe rolling buffer of the most recent parsed samples. Used by the
+    positioning WebSocket (distance) and the validation flow (accuracy).
+    """
+
+    def __init__(self, mode: str, maxlen: int = 600) -> None:
+        self._mode = mode
+        self._maxlen = maxlen
+        self._proc: Optional[subprocess.Popen] = None
+        self._thread: Optional[threading.Thread] = None
+        self._lock = threading.Lock()
+        self._samples: list[dict] = []
+        self._running = False
+
+    @property
+    def is_running(self) -> bool:
+        return self._running
+
+    def start(self) -> None:
+        if self._running:
+            return
+        if not _bridge_available():
+            raise RuntimeError(
+                "Tobii bridge not available — check 32-bit PowerShell, the "
+                "bridge script, and the Stream Engine DLL"
+            )
+
+        dll = _find_dll()
+        with self._lock:
+            self._samples = []
+
+        self._proc = subprocess.Popen(
+            [
+                _PS32,
+                "-NoProfile",
+                "-ExecutionPolicy", "Bypass",
+                "-File", str(_BRIDGE_SCRIPT),
+                "-Mode", self._mode,
+                "-DllPath", dll,
+            ],
+            stdout=subprocess.PIPE,
+            stdin=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+
+        # Wait for readiness signal
+        first_line = self._proc.stdout.readline().strip()
+        if not first_line:
+            stderr_out = self._proc.stderr.read()
+            self._proc.kill()
+            raise RuntimeError(f"Bridge failed to start: {stderr_out}")
+        try:
+            status = json.loads(first_line)
+            if status.get("status") != "streaming":
+                raise RuntimeError(f"Unexpected bridge status: {first_line}")
+        except json.JSONDecodeError:
+            raise RuntimeError(f"Bridge returned invalid JSON: {first_line}")
+
+        self._running = True
+        self._thread = threading.Thread(target=self._reader, daemon=True)
+        self._thread.start()
+        logger.info("LiveStream started (mode=%s)", self._mode)
+
+    def stop(self) -> None:
+        if not self._running:
+            return
+        try:
+            self._proc.kill()
+        except OSError:
+            pass
+        try:
+            self._proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
+        if self._thread:
+            self._thread.join(timeout=3)
+        self._running = False
+        logger.info("LiveStream stopped (mode=%s)", self._mode)
+
+    def latest(self) -> Optional[dict]:
+        with self._lock:
+            return self._samples[-1] if self._samples else None
+
+    def collect(self, window_s: float) -> list[dict]:
+        """Block for window_s, then return samples captured during that window."""
+        with self._lock:
+            start_idx = len(self._samples)
+        time.sleep(window_s)
+        with self._lock:
+            return list(self._samples[start_idx:])
+
+    def _reader(self) -> None:
+        try:
+            for line in self._proc.stdout:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    sample = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if "status" in sample:
+                    continue
+                with self._lock:
+                    self._samples.append(sample)
+                    if len(self._samples) > self._maxlen:
+                        self._samples = self._samples[-self._maxlen:]
+        except (ValueError, OSError):
+            pass
+
+
+def launch_tobii_calibration() -> bool:
+    """Launch Tobii's own calibration/config app. Returns True if one was found
+    and launched, False otherwise (caller should then guide the user to the
+    Tobii tray icon)."""
+    for exe in _CALIBRATION_EXE_PATHS:
+        if os.path.isfile(exe):
+            try:
+                subprocess.Popen([exe])
+                logger.info("Launched Tobii calibration: %s", exe)
+                return True
+            except OSError as exc:
+                logger.warning("Failed to launch %s: %s", exe, exc)
+    logger.warning("No Tobii calibration executable found")
+    return False
+
+
+# Module-level singletons
 recorder = GazeRecorder()
+position_stream = LiveStream("position")
+gaze_stream = LiveStream("stream")

@@ -17,9 +17,11 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
   const [positionReady, setPositionReady] = useState(false);
   const [liveDistance, setLiveDistance] = useState<number | null>(null);
 
-  const [isMockMode, setIsMockMode] = useState<boolean | null>(null);
+  const [deviceInfo, setDeviceInfo] = useState<{ bridge_available: boolean; device_connected: boolean; model: string | null; serial: string | null } | null>(null);
   const [wsMessageCount, setWsMessageCount] = useState(0);
   const [rawWsStatus, setRawWsStatus] = useState<string>('--');
+
+  const [tobiiLaunchMsg, setTobiiLaunchMsg] = useState<string>('');
 
   const [calibrationPhase, setCalibrationPhase] = useState<'idle' | 'running' | 'done'>('idle');
   const [activeDot, setActiveDot] = useState(-1);
@@ -33,8 +35,8 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
   useEffect(() => {
     fetch('http://localhost:8000/api/calibration/status')
       .then(r => r.json())
-      .then(d => setIsMockMode(d.mock_mode))
-      .catch(() => setIsMockMode(null));
+      .then(d => setDeviceInfo(d))
+      .catch(() => setDeviceInfo(null));
   }, []);
 
   // 1. Live Distance Positioning WebSocket Pipeline (Step 1b)
@@ -46,7 +48,7 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
         try {
           const data = JSON.parse(event.data);
           setLiveDistance(Math.round(data.distance_mm));
-          setPositionReady(data.status === 'optimal' && !data.mock);
+          setPositionReady(data.status === 'optimal');
           setRawWsStatus(data.status);
           setWsMessageCount(c => c + 1);
         } catch (err) {
@@ -62,90 +64,67 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
     }
   }, [step, positioningPhase]);
 
-  // 2. Hardware Calibration Sequence & Point Collection (Step 2)
+  // 2. Validation sequence — reads the live gaze stream and measures accuracy
+  //    against each known target. (The 4C's gaze-model calibration itself is
+  //    performed by Tobii's own software in Step 2.)
   useEffect(() => {
-    let interval: ReturnType<typeof setInterval>;
+    if (calibrationPhase !== 'running') return;
+    let cancelled = false;
 
-    const runSequence = async () => {
-      if (calibrationPhase === 'running') {
-        try {
-          // Tell hardware to enter calibration mode
-          await fetch('http://localhost:8000/api/calibration/start', { method: 'POST' });
+    const sleep = (ms: number) => new Promise<void>(res => setTimeout(res, ms));
 
-          setPointStatuses(['pending', 'pending', 'pending', 'pending', 'pending']);
-          let currentDot = 0;
-          setActiveDot(0);
-          setPointStatuses(s => { const n = [...s]; n[0] = 'collecting'; return n; });
+    const runValidation = async () => {
+      try {
+        await fetch('http://localhost:8000/api/calibration/validate/start', { method: 'POST' });
+        setPointStatuses(['pending', 'pending', 'pending', 'pending', 'pending']);
 
-          // Helper function to send target look point to Tobii hardware
-          const collectPoint = async (dotIdx: number) => {
-            const coords = DOT_COORDINATES[dotIdx];
-            try {
-              const res = await fetch('http://localhost:8000/api/calibration/collect', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(coords),
-              });
-              const data = await res.json();
-              const ok = data.status === 'success' || data.status === 'mock_point_collected';
-              setPointStatuses(s => { const n = [...s]; n[dotIdx] = ok ? 'success' : 'fail'; return n; });
-            } catch (err) {
-              console.error(`Error collecting dot ${dotIdx}:`, err);
-              setPointStatuses(s => { const n = [...s]; n[dotIdx] = 'fail'; return n; });
-            }
-          };
-
-          // Collect the very first dot after 2 seconds (giving eye time to fixate)
-          setTimeout(() => collectPoint(0), 2000);
-
-          interval = setInterval(() => {
-            currentDot++;
-            if (currentDot > 4) {
-              clearInterval(interval);
-              finishCalibration();
-            } else {
-              setActiveDot(currentDot);
-              setPointStatuses(s => { const n = [...s]; n[currentDot] = 'collecting'; return n; });
-              const targetDot = currentDot;
-              setTimeout(() => collectPoint(targetDot), 2000);
-            }
-          }, 4000);
-
-        } catch (err) {
-          console.error("Failed to initiate hardware calibration setup:", err);
-          setCalibrationPhase('idle');
+        for (let i = 0; i < DOT_COORDINATES.length; i++) {
+          if (cancelled) return;
+          setActiveDot(i);
+          setPointStatuses(s => { const n = [...s]; n[i] = 'collecting'; return n; });
+          // Give the eye ~0.8s to settle, then collect (backend blocks ~1.5s).
+          await sleep(800);
+          if (cancelled) return;
+          try {
+            const res = await fetch('http://localhost:8000/api/calibration/validate/point', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(DOT_COORDINATES[i]),
+            });
+            const data = await res.json();
+            const ok = data.valid && data.valid_samples > 0;
+            setPointStatuses(s => { const n = [...s]; n[i] = ok ? 'success' : 'fail'; return n; });
+          } catch (err) {
+            console.error(`Error validating dot ${i}:`, err);
+            setPointStatuses(s => { const n = [...s]; n[i] = 'fail'; return n; });
+          }
+          await sleep(400);
         }
+
+        if (cancelled) return;
+        const response = await fetch('http://localhost:8000/api/calibration/validate/finish', { method: 'POST' });
+        const results = await response.json();
+
+        if (results.status === 'success') {
+          setValidationStatus(results.overall_quality.toLowerCase() === 'pass' ? 'passed' : 'failed');
+          setAccuracy(results.accuracy_degrees ? `${results.accuracy_degrees.toFixed(2)}°` : '--');
+          setPrecision(results.precision_degrees ? `${results.precision_degrees.toFixed(2)}°` : '--');
+          setValidPoints(results.valid_count || 0);
+        } else {
+          setValidationStatus('failed');
+        }
+      } catch (err) {
+        console.error("Validation failed:", err);
+        setValidationStatus('failed');
+      }
+      if (!cancelled) {
+        setCalibrationPhase('done');
+        setStep(3);
       }
     };
 
-   const finishCalibration = async () => {
-  try {
-    const response = await fetch('http://localhost:8000/api/calibration/compute', { method: 'POST' });
-    const results = await response.json();
-
-    if (results.status === 'success') {
-      setValidationStatus(results.overall_quality.toLowerCase() === 'pass' ? 'passed' : 'failed');
-      
-      // Map the calculated math to the UI
-      setAccuracy(results.accuracy_degrees ? `${results.accuracy_degrees.toFixed(2)}°` : '--');
-      setPrecision(results.precision_degrees ? `${results.precision_degrees.toFixed(2)}°` : '--');
-      setValidPoints(results.valid_count || 0); // <--- Capture valid points
-    } else {
-      setValidationStatus('failed');
-    }
-  } catch (err) {
-    console.error("Error computing final calibration data:", err);
-    setValidationStatus('failed');
-  }
-  setCalibrationPhase('done');
-  setStep(3);
-};
-
-    runSequence();
-
-    return () => {
-      if (interval) clearInterval(interval);
-    };
+    runValidation();
+    return () => { cancelled = true; };
   }, [calibrationPhase]);
 
   return (
@@ -154,12 +133,12 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
       {calibrationPhase === 'running' && (
         <div className="fixed inset-0 z-[100] bg-black text-white cursor-none animate-in fade-in duration-700">
           <div className="absolute top-16 w-full text-center text-sm font-medium text-gray-400">
-            Follow and focus on the dot with your eyes as it moves around.
-            <button 
-              onClick={() => { setCalibrationPhase('done'); setStep(3); }} 
+            Validating tracking — focus on each dot as it lights up.
+            <button
+              onClick={() => { setCalibrationPhase('done'); setStep(3); }}
               className="block mx-auto mt-2 text-[10px] text-gray-800 hover:text-gray-500 cursor-pointer"
             >
-              [Dev: Skip 20s Timer]
+              [Dev: Skip]
             </button>
           </div>
 
@@ -330,11 +309,14 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
               <div className="rounded-lg border border-gray-600 p-3 font-mono text-xs text-gray-300" style={{ backgroundColor: '#0f172a' }}>
                 <div className="mb-2 flex items-center gap-2">
                   <span className="font-bold text-gray-400">EYE TRACKER DEBUG</span>
-                  {isMockMode === null && <span className="rounded bg-gray-700 px-1.5 py-0.5 text-gray-400">checking...</span>}
-                  {isMockMode === true && <span className="rounded bg-orange-600 px-1.5 py-0.5 text-white">MOCK MODE — no hardware</span>}
-                  {isMockMode === false && <span className="rounded bg-green-700 px-1.5 py-0.5 text-white">HARDWARE CONNECTED</span>}
+                  {deviceInfo === null && <span className="rounded bg-gray-700 px-1.5 py-0.5 text-gray-400">checking...</span>}
+                  {deviceInfo && deviceInfo.device_connected && <span className="rounded bg-green-700 px-1.5 py-0.5 text-white">DEVICE CONNECTED</span>}
+                  {deviceInfo && !deviceInfo.device_connected && deviceInfo.bridge_available && <span className="rounded bg-orange-600 px-1.5 py-0.5 text-white">BRIDGE OK — no device found</span>}
+                  {deviceInfo && !deviceInfo.bridge_available && <span className="rounded bg-red-700 px-1.5 py-0.5 text-white">NO BRIDGE — Stream Engine DLL missing</span>}
                 </div>
                 <div className="space-y-1 text-gray-400">
+                  <div>model: <span className="text-white">{deviceInfo?.model ?? '--'}</span></div>
+                  <div>serial: <span className="text-white">{deviceInfo?.serial ?? '--'}</span></div>
                   <div>distance_mm: <span className="text-white">{liveDistance !== null ? (liveDistance === -1 ? 'no eyes detected' : `${liveDistance}`) : 'waiting...'}</span></div>
                   <div>status: <span className={rawWsStatus === 'optimal' ? 'text-green-400' : 'text-yellow-400'}>{rawWsStatus}</span></div>
                   <div>ws messages received: <span className="text-white">{wsMessageCount}</span></div>
@@ -343,27 +325,54 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
             </div>
           )}
 
-          {/* STEP 2: RUN CALIBRATION */}
+          {/* STEP 2: RUN CALIBRATION (handled by Tobii's own software) */}
           {step === 2 && (
             <div className="space-y-6 animate-in fade-in duration-300">
               <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
-                A series of dots will appear on screen. Follow each dot with your eyes without moving your head. Keep still until each dot disappears. The process takes about 20 seconds.
+                The Tobii 4C calibrates through Tobii's own Eye Tracking software. Click below to open it, follow the on-screen calibration, then return here to validate the result.
               </div>
 
-              <div className="flex h-64 w-full flex-col items-center justify-center rounded-xl bg-gray-100 border border-gray-200 shadow-inner">
-                <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full border-4 border-violet-200">
-                  <div className="h-6 w-6 rounded-full bg-violet-600 animate-pulse"></div>
+              <div className="space-y-4 rounded-xl border border-gray-200 bg-gray-50 p-6">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-violet-600 text-xs font-bold text-white">1</div>
+                  <div className="text-sm text-gray-700">
+                    <span className="block font-semibold text-gray-900">Open Tobii's calibration</span>
+                    <span className="text-gray-500">Launches the Tobii Eye Tracking app's guided calibration.</span>
+                  </div>
                 </div>
-                <span className="text-sm font-medium text-gray-600">5 calibration targets will appear in sequence</span>
-                <span className="text-xs text-gray-500 mt-1">Make sure your browser is maximized</span>
+                <div className="pl-10">
+                  <button
+                    onClick={async () => {
+                      try {
+                        const res = await fetch('http://localhost:8000/api/calibration/launch-tobii', { method: 'POST' });
+                        const data = await res.json();
+                        setTobiiLaunchMsg(data.message || '');
+                      } catch {
+                        setTobiiLaunchMsg('Could not reach the backend. Open Tobii calibration from the tray icon manually.');
+                      }
+                    }}
+                    className="rounded-lg bg-violet-600 px-6 py-2.5 text-sm font-medium text-white transition-all hover:bg-violet-700"
+                  >
+                    Open Tobii Calibration
+                  </button>
+                  {tobiiLaunchMsg && <p className="mt-2 text-xs text-gray-600">{tobiiLaunchMsg}</p>}
+                </div>
+
+                <div className="flex items-start gap-3 border-t border-gray-200 pt-4">
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-violet-600 text-xs font-bold text-white">2</div>
+                  <div className="text-sm text-gray-700">
+                    <span className="block font-semibold text-gray-900">Validate the result</span>
+                    <span className="text-gray-500">5 dots will appear; look at each so we can measure real accuracy. Make sure your browser is maximized.</span>
+                  </div>
+                </div>
               </div>
 
-              <div className="flex justify-center pt-4">
-                <button 
+              <div className="flex justify-center pt-2">
+                <button
                   onClick={() => setCalibrationPhase('running')}
                   className="rounded-lg bg-violet-600 px-10 py-3.5 text-base font-bold text-white transition-all hover:bg-violet-700 shadow-md"
                 >
-                  Start Calibration Sequence
+                  I've Calibrated — Run Validation
                 </button>
               </div>
             </div>

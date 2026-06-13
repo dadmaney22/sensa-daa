@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory=$true)]
-    [ValidateSet("detect","stream")]
+    [ValidateSet("detect","stream","position")]
     [string]$Mode,
 
     [string]$DllPath = "C:\Program Files (x86)\Tobii\Tobii EyeX\tobii_stream_engine.dll",
@@ -50,11 +50,48 @@ public static class Tobii
         public float y;
     }
 
+    // Gaze origin: per-eye XYZ in millimetres from the tracker. Z ~ distance.
+    [StructLayout(LayoutKind.Sequential)]
+    public struct GazeOrigin
+    {
+        public long timestamp_us;
+        public int left_validity;
+        public float left_x;
+        public float left_y;
+        public float left_z;
+        public int right_validity;
+        public float right_x;
+        public float right_y;
+        public float right_z;
+    }
+
+    // Eye position normalized: per-eye XYZ in track box [0,1]. Fallback for
+    // older EyeX DLLs that lack gaze_origin.
+    [StructLayout(LayoutKind.Sequential)]
+    public struct EyePositionNormalized
+    {
+        public long timestamp_us;
+        public int left_validity;
+        public float left_x;
+        public float left_y;
+        public float left_z;
+        public int right_validity;
+        public float right_x;
+        public float right_y;
+        public float right_z;
+    }
+
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     public delegate void UrlReceiver(IntPtr url, IntPtr userData);
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     public delegate void GazeCallback(ref GazePoint gaze, IntPtr userData);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate void GazeOriginCallback(ref GazeOrigin origin, IntPtr userData);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate void EyePositionCallback(ref EyePositionNormalized pos, IntPtr userData);
 
     // --- Core lifecycle ---
 
@@ -94,6 +131,22 @@ public static class Tobii
 
     [DllImport("$escapedDll", CallingConvention = CallingConvention.Cdecl)]
     public static extern int tobii_gaze_point_unsubscribe(IntPtr device);
+
+    // --- Gaze origin subscription (XYZ in mm) ---
+
+    [DllImport("$escapedDll", CallingConvention = CallingConvention.Cdecl)]
+    public static extern int tobii_gaze_origin_subscribe(IntPtr device, GazeOriginCallback cb, IntPtr ud);
+
+    [DllImport("$escapedDll", CallingConvention = CallingConvention.Cdecl)]
+    public static extern int tobii_gaze_origin_unsubscribe(IntPtr device);
+
+    // --- Eye position normalized subscription (fallback, [0,1]) ---
+
+    [DllImport("$escapedDll", CallingConvention = CallingConvention.Cdecl)]
+    public static extern int tobii_eye_position_normalized_subscribe(IntPtr device, EyePositionCallback cb, IntPtr ud);
+
+    [DllImport("$escapedDll", CallingConvention = CallingConvention.Cdecl)]
+    public static extern int tobii_eye_position_normalized_unsubscribe(IntPtr device);
 
     // --- Callback processing ---
 
@@ -248,6 +301,82 @@ if ($Mode -eq "stream") {
     }
     finally {
         [Tobii]::tobii_gaze_point_unsubscribe($dev) | Out-Null
+        [Tobii]::tobii_device_destroy($dev) | Out-Null
+        [Tobii]::tobii_api_destroy($api) | Out-Null
+    }
+    exit 0
+}
+
+# ── POSITION mode (per-eye XYZ for distance/presence) ──────────────────────
+
+if ($Mode -eq "position") {
+    $api = New-Api
+    $url = Find-DeviceUrl $api
+    if (-not $url) {
+        [Console]::Error.WriteLine("No Tobii device found")
+        [Tobii]::tobii_api_destroy($api) | Out-Null
+        exit 1
+    }
+    $dev = Connect-Device $api $url
+
+    # Try gaze_origin (mm) first; fall back to eye_position_normalized ([0,1]).
+    $useNormalized = $false
+
+    $originCallback = [Tobii+GazeOriginCallback]{
+        param([ref]$o, [IntPtr]$ud)
+        $lv = if ($o.Value.left_validity -eq [Tobii]::VALID) { 1 } else { 0 }
+        $rv = if ($o.Value.right_validity -eq [Tobii]::VALID) { 1 } else { 0 }
+        $line = '{{"left_xyz":[{0},{1},{2}],"right_xyz":[{3},{4},{5}],"left_valid":{6},"right_valid":{7},"normalized":false}}' -f `
+            $o.Value.left_x,$o.Value.left_y,$o.Value.left_z,$o.Value.right_x,$o.Value.right_y,$o.Value.right_z,$lv,$rv
+        [Console]::Out.WriteLine($line)
+        [Console]::Out.Flush()
+    }
+
+    $posCallback = [Tobii+EyePositionCallback]{
+        param([ref]$p, [IntPtr]$ud)
+        $lv = if ($p.Value.left_validity -eq [Tobii]::VALID) { 1 } else { 0 }
+        $rv = if ($p.Value.right_validity -eq [Tobii]::VALID) { 1 } else { 0 }
+        $line = '{{"left_xyz":[{0},{1},{2}],"right_xyz":[{3},{4},{5}],"left_valid":{6},"right_valid":{7},"normalized":true}}' -f `
+            $p.Value.left_x,$p.Value.left_y,$p.Value.left_z,$p.Value.right_x,$p.Value.right_y,$p.Value.right_z,$lv,$rv
+        [Console]::Out.WriteLine($line)
+        [Console]::Out.Flush()
+    }
+
+    $ret = -1
+    try {
+        $ret = [Tobii]::tobii_gaze_origin_subscribe($dev, $originCallback, [IntPtr]::Zero)
+    } catch { $ret = -1 }
+
+    if ($ret -ne [Tobii]::OK) {
+        # Fall back to normalized eye position
+        try {
+            $ret = [Tobii]::tobii_eye_position_normalized_subscribe($dev, $posCallback, [IntPtr]::Zero)
+            $useNormalized = $true
+        } catch { $ret = -1 }
+    }
+
+    if ($ret -ne [Tobii]::OK) {
+        [Console]::Error.WriteLine("position subscribe failed ($ret)")
+        [Tobii]::tobii_device_destroy($dev) | Out-Null
+        [Tobii]::tobii_api_destroy($api) | Out-Null
+        exit 1
+    }
+
+    [Console]::Out.WriteLine('{"status":"streaming"}')
+    [Console]::Out.Flush()
+
+    try {
+        while ($true) {
+            [Tobii]::tobii_device_process_callbacks($dev) | Out-Null
+            Start-Sleep -Milliseconds 10
+        }
+    }
+    finally {
+        if ($useNormalized) {
+            [Tobii]::tobii_eye_position_normalized_unsubscribe($dev) | Out-Null
+        } else {
+            [Tobii]::tobii_gaze_origin_unsubscribe($dev) | Out-Null
+        }
         [Tobii]::tobii_device_destroy($dev) | Out-Null
         [Tobii]::tobii_api_destroy($api) | Out-Null
     }
