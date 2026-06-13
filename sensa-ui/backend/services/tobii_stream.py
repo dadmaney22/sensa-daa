@@ -39,8 +39,10 @@ _DLL_SEARCH_PATHS = [
 # The 4C's gaze-model calibration is owned by Tobii's own software; we just
 # launch whichever one is installed.
 _CALIBRATION_EXE_PATHS = [
+    # Tobii EyeX / Core (the 4C stack) — note the dotted filename.
+    r"C:\Program Files (x86)\Tobii\Tobii EyeX Config\Tobii.EyeX.Configuration.exe",
     r"C:\Program Files (x86)\Tobii\Tobii EyeX Config\Tobii EyeX Configuration.exe",
-    r"C:\Program Files (x86)\Tobii\Tobii EyeX Interaction\Tobii EyeX Interaction.exe",
+    r"C:\Program Files (x86)\Tobii\Tobii EyeX Interaction\Tobii.EyeX.Interaction.exe",
     r"C:\Program Files\Tobii\Tobii Eye Tracking\TobiiExperience.exe",
     r"C:\Program Files (x86)\Tobii\Tobii Eye Tracking\TobiiExperience.exe",
 ]
