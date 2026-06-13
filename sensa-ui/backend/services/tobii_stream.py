@@ -39,10 +39,13 @@ _DLL_SEARCH_PATHS = [
 # The 4C's gaze-model calibration is owned by Tobii's own software; we just
 # launch whichever one is installed.
 _CALIBRATION_EXE_PATHS = [
-    # Tobii EyeX / Core (the 4C stack) — note the dotted filename.
-    r"C:\Program Files (x86)\Tobii\Tobii EyeX Config\Tobii.EyeX.Configuration.exe",
-    r"C:\Program Files (x86)\Tobii\Tobii EyeX Config\Tobii EyeX Configuration.exe",
-    r"C:\Program Files (x86)\Tobii\Tobii EyeX Interaction\Tobii.EyeX.Interaction.exe",
+    # Tobii EyeX / Core (the 4C stack). The Tray app opens the Tobii menu where
+    # "Create New Profile" / "Recalibrate" lives. (The standalone Configuration
+    # wizard requires elevation and crashes on already-configured devices, so we
+    # avoid it.)
+    r"C:\Program Files (x86)\Tobii\Tobii EyeX Interaction\Tobii.EyeX.Tray.exe",
+    r"C:\Program Files (x86)\Tobii\Tobii EyeX Interaction\Tobii.EyeX.Tools.Tray.exe",
+    r"C:\Program Files (x86)\Tobii\Tobii EyeX Interaction\Tobii.EyeX.Interaction.Settings.UI.exe",
     r"C:\Program Files\Tobii\Tobii Eye Tracking\TobiiExperience.exe",
     r"C:\Program Files (x86)\Tobii\Tobii Eye Tracking\TobiiExperience.exe",
 ]
@@ -56,15 +59,14 @@ _TOBII_SCAN_ROOTS = [
     r"C:\Program Files (x86)\TobiiGaming",
 ]
 
-# Executable name fragments that launch a calibration / config UI, most
-# preferred first.
+# Executable name fragments that open the Tobii menu/settings (where
+# "Create New Profile" / "Recalibrate" lives), most preferred first. We avoid
+# "configuration" — that standalone wizard needs elevation and crashes on an
+# already-configured device.
 _CALIBRATION_EXE_NAME_HINTS = [
-    "configuration",
+    "tray",
     "tobiiexperience",
-    "eyex interaction",
-    "guestcalibration",
-    "calibrat",
-    "settings",
+    "settings.ui",
     "eye tracking",
 ]
 
@@ -428,14 +430,26 @@ def launch_tobii_calibration() -> bool:
     and launched, False otherwise (caller should then guide the user to the
     Tobii tray icon)."""
     exe = _find_calibration_exe()
-    if exe:
+    if not exe:
+        logger.warning("No Tobii calibration executable found")
+        return False
+    try:
+        subprocess.Popen([exe])
+        logger.info("Launched Tobii calibration: %s", exe)
+        return True
+    except OSError as exc:
+        # WinError 740: the exe requires elevation. Re-launch via ShellExecute
+        # with the "runas" verb so Windows shows a UAC prompt instead.
+        logger.warning("Popen failed for %s (%s); retrying elevated", exe, exc)
         try:
-            subprocess.Popen([exe])
-            logger.info("Launched Tobii calibration: %s", exe)
-            return True
-        except OSError as exc:
-            logger.warning("Failed to launch %s: %s", exe, exc)
-    logger.warning("No Tobii calibration executable found")
+            import ctypes  # Windows-only
+            rc = ctypes.windll.shell32.ShellExecuteW(None, "runas", exe, None, None, 1)
+            if rc > 32:
+                logger.info("Launched Tobii calibration (elevated): %s", exe)
+                return True
+            logger.warning("ShellExecuteW returned %s for %s", rc, exe)
+        except Exception as exc2:
+            logger.warning("Elevated launch failed for %s: %s", exe, exc2)
     return False
 
 

@@ -120,10 +120,13 @@ async def launch_tobii():
     return {
         "launched": launched,
         "message": (
-            "Tobii calibration opened — complete it, then return here."
+            "Tobii menu opened — click the Tobii tray icon and choose "
+            "'Create New Profile' (or Recalibrate), complete the calibration, "
+            "then return here."
             if launched else
-            "Could not find Tobii's calibration app. Please open it from the "
-            "Tobii tray icon and run a recalibration, then return here."
+            "Could not open Tobii's app automatically. Click the Tobii icon in "
+            "your Windows tray (bottom-right, under the ^), choose 'Create New "
+            "Profile', calibrate, then return here."
         ),
     }
 

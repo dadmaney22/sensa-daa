@@ -329,15 +329,15 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
           {step === 2 && (
             <div className="space-y-6 animate-in fade-in duration-300">
               <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
-                The Tobii 4C calibrates through Tobii's own Eye Tracking software. Click below to open it, follow the on-screen calibration, then return here to validate the result.
+                The Tobii 4C calibrates through Tobii's own software. Click below to open the Tobii menu, choose <strong>Create New Profile</strong> (or Recalibrate) and follow Tobii's guided calibration, then return here to validate the result.
               </div>
 
               <div className="space-y-4 rounded-xl border border-gray-200 bg-gray-50 p-6">
                 <div className="flex items-start gap-3">
                   <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-violet-600 text-xs font-bold text-white">1</div>
                   <div className="text-sm text-gray-700">
-                    <span className="block font-semibold text-gray-900">Open Tobii's calibration</span>
-                    <span className="text-gray-500">Launches the Tobii Eye Tracking app's guided calibration.</span>
+                    <span className="block font-semibold text-gray-900">Open the Tobii menu, then "Create New Profile"</span>
+                    <span className="text-gray-500">Opens the Tobii tray menu. Click the Tobii icon → <strong>Create New Profile</strong> to start a fresh calibration. (Tobii doesn't allow jumping straight into calibration, so this one click is needed.)</span>
                   </div>
                 </div>
                 <div className="pl-10">
@@ -353,7 +353,7 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
                     }}
                     className="rounded-lg bg-violet-600 px-6 py-2.5 text-sm font-medium text-white transition-all hover:bg-violet-700"
                   >
-                    Open Tobii Calibration
+                    Open Tobii Menu
                   </button>
                   {tobiiLaunchMsg && <p className="mt-2 text-xs text-gray-600">{tobiiLaunchMsg}</p>}
                 </div>
