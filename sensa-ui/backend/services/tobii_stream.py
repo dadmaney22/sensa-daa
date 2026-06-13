@@ -284,13 +284,14 @@ class LiveStream:
     positioning WebSocket (distance) and the validation flow (accuracy).
     """
 
-    def __init__(self, mode: str, maxlen: int = 600) -> None:
+    def __init__(self, mode: str, maxlen: int = 2000) -> None:
         self._mode = mode
         self._maxlen = maxlen
         self._proc: Optional[subprocess.Popen] = None
         self._thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
         self._samples: list[dict] = []
+        self._total_appended = 0  # monotonic; survives buffer trimming
         self._running = False
 
     @property
@@ -309,6 +310,7 @@ class LiveStream:
         dll = _find_dll()
         with self._lock:
             self._samples = []
+            self._total_appended = 0
 
         self._proc = subprocess.Popen(
             [
@@ -365,12 +367,22 @@ class LiveStream:
             return self._samples[-1] if self._samples else None
 
     def collect(self, window_s: float) -> list[dict]:
-        """Block for window_s, then return samples captured during that window."""
+        """Block for window_s, then return samples captured during that window.
+
+        Uses a monotonic append counter (not a list index) so it stays correct
+        even when the rolling buffer trims old samples from the front during a
+        long validation pass.
+        """
         with self._lock:
-            start_idx = len(self._samples)
+            start_count = self._total_appended
         time.sleep(window_s)
         with self._lock:
-            return list(self._samples[start_idx:])
+            n = self._total_appended - start_count
+            if n <= 0:
+                return []
+            # The n most-recently appended samples are exactly those captured
+            # during the window (samples are only trimmed from the front).
+            return list(self._samples[-n:]) if n <= len(self._samples) else list(self._samples)
 
     def _reader(self) -> None:
         try:
@@ -386,6 +398,7 @@ class LiveStream:
                     continue
                 with self._lock:
                     self._samples.append(sample)
+                    self._total_appended += 1
                     if len(self._samples) > self._maxlen:
                         self._samples = self._samples[-self._maxlen:]
         except (ValueError, OSError):
