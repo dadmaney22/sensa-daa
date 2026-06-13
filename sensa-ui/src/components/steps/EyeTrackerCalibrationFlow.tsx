@@ -321,7 +321,7 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
                 </div>
 
               {/* Debug panel */}
-              <div className="rounded-lg border border-gray-300 bg-gray-950 p-3 font-mono text-xs text-gray-300">
+              <div className="rounded-lg border border-gray-600 p-3 font-mono text-xs text-gray-300" style={{ backgroundColor: '#0f172a' }}>
                 <div className="mb-2 flex items-center gap-2">
                   <span className="font-bold text-gray-400">EYE TRACKER DEBUG</span>
                   {isMockMode === null && <span className="rounded bg-gray-700 px-1.5 py-0.5 text-gray-400">checking...</span>}
