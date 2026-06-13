@@ -22,7 +22,7 @@ uvicorn==0.39.0
 websockets==15.0.1
 
 # --- Tobii Additional Dependencies ---
-tobii_research==1.11.0
+# tobii_research==1.11.0  # Install manually from .whl: https://developer.tobiipro.com/python/python-sdk-reference-guide.html
 python-multipart==0.0.9
 opencv-python-headless>=4.9.0.80
 matplotlib>=3.8.0

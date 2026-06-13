@@ -1,16 +1,7 @@
 import os
-import subprocess
-import sys
 import time
 from pathlib import Path
 
-# Auto-install tobii_research if missing
-try:
-    import tobii_research  # noqa: F401
-except ImportError:
-    print("tobii_research not found — installing tobii_research==1.11.0 ...")
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "tobii_research==1.11.0"])
-    print("tobii_research installed. Continuing startup...")
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
