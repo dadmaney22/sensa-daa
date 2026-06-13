@@ -518,13 +518,18 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
                 {validationStatus === 'passed' ? (
                   <button onClick={onFinish} className="rounded-lg bg-violet-600 px-6 py-2.5 text-sm font-medium text-white hover:bg-violet-700">Accept and Continue</button>
                 ) : (
-                  <button onClick={() => {
-                    setStep(1);
-                    setPositioningPhase('instructions');
-                    setCalibrationPhase('idle');
-                  }} className="flex w-full sm:w-auto items-center justify-center gap-2 rounded-lg bg-violet-600 px-6 py-2.5 text-sm font-medium text-white hover:bg-violet-700">
-                    <AlertCircle className="h-4 w-4" /> Recalibrate Eye Tracker
-                  </button>
+                  <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
+                    <button onClick={() => {
+                      setStep(1);
+                      setPositioningPhase('instructions');
+                      setCalibrationPhase('idle');
+                    }} className="flex w-full sm:w-auto items-center justify-center gap-2 rounded-lg bg-violet-600 px-6 py-2.5 text-sm font-medium text-white hover:bg-violet-700">
+                      <AlertCircle className="h-4 w-4" /> Recalibrate Eye Tracker
+                    </button>
+                    <button onClick={onFinish} className="w-full sm:w-auto rounded-lg border border-red-300 bg-white px-6 py-2.5 text-sm font-medium text-red-700 hover:bg-red-50">
+                      Accept Anyway
+                    </button>
+                  </div>
                 )}
                 <button
                   onClick={() => setCalibrationPhase('running')}
