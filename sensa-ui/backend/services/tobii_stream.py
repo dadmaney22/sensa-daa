@@ -45,6 +45,27 @@ _CALIBRATION_EXE_PATHS = [
     r"C:\Program Files (x86)\Tobii\Tobii Eye Tracking\TobiiExperience.exe",
 ]
 
+# Root folders to scan recursively when the exact paths above miss. Covers the
+# various Tobii stacks (EyeX/Core for the 4C, Tobii Experience, TobiiGaming).
+_TOBII_SCAN_ROOTS = [
+    r"C:\Program Files\Tobii",
+    r"C:\Program Files (x86)\Tobii",
+    r"C:\Program Files\TobiiGaming",
+    r"C:\Program Files (x86)\TobiiGaming",
+]
+
+# Executable name fragments that launch a calibration / config UI, most
+# preferred first.
+_CALIBRATION_EXE_NAME_HINTS = [
+    "configuration",
+    "tobiiexperience",
+    "eyex interaction",
+    "guestcalibration",
+    "calibrat",
+    "settings",
+    "eye tracking",
+]
+
 
 def _find_dll() -> Optional[str]:
     for p in _DLL_SEARCH_PATHS:
@@ -367,18 +388,51 @@ class LiveStream:
             pass
 
 
+def _find_calibration_exe() -> Optional[str]:
+    """Locate Tobii's calibration/config executable.
+
+    Order: TOBII_CALIBRATION_EXE env override -> known exact paths ->
+    recursive scan of the Tobii install roots, ranked by name hint.
+    """
+    override = os.environ.get("TOBII_CALIBRATION_EXE")
+    if override and os.path.isfile(override):
+        return override
+
+    for exe in _CALIBRATION_EXE_PATHS:
+        if os.path.isfile(exe):
+            return exe
+
+    # Recursive scan, ranked by how well the filename matches a hint.
+    best: Optional[str] = None
+    best_rank = len(_CALIBRATION_EXE_NAME_HINTS)
+    for root in _TOBII_SCAN_ROOTS:
+        if not os.path.isdir(root):
+            continue
+        for dirpath, _dirs, files in os.walk(root):
+            for fname in files:
+                if not fname.lower().endswith(".exe"):
+                    continue
+                lower = fname.lower()
+                for rank, hint in enumerate(_CALIBRATION_EXE_NAME_HINTS):
+                    if hint in lower and rank < best_rank:
+                        best = os.path.join(dirpath, fname)
+                        best_rank = rank
+                        break
+    return best
+
+
 def launch_tobii_calibration() -> bool:
     """Launch Tobii's own calibration/config app. Returns True if one was found
     and launched, False otherwise (caller should then guide the user to the
     Tobii tray icon)."""
-    for exe in _CALIBRATION_EXE_PATHS:
-        if os.path.isfile(exe):
-            try:
-                subprocess.Popen([exe])
-                logger.info("Launched Tobii calibration: %s", exe)
-                return True
-            except OSError as exc:
-                logger.warning("Failed to launch %s: %s", exe, exc)
+    exe = _find_calibration_exe()
+    if exe:
+        try:
+            subprocess.Popen([exe])
+            logger.info("Launched Tobii calibration: %s", exe)
+            return True
+        except OSError as exc:
+            logger.warning("Failed to launch %s: %s", exe, exc)
     logger.warning("No Tobii calibration executable found")
     return False
 
