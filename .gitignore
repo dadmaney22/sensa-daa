@@ -1,0 +1,18 @@
+node_modules/
+build/
+.env
+Sensa_eda_ecg_metrics.py
+study_data/
+
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.pytest_cache/
+
+# Frontend build
+dist/
+dist-ssr/
