@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { CheckCircle2, Check, XCircle, AlertCircle } from 'lucide-react';
+import { CheckCircle2, Check, XCircle, AlertCircle, CircleDot, ClipboardList } from 'lucide-react';
 import calibrationDiagram from '../../assets/eyetrackpos.png';
 
 const DOT_COORDINATES = [
@@ -315,7 +315,10 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
               </div>
 
               <div className="rounded-lg border border-gray-200 bg-gray-100/50 p-6">
-                 <h4 className="mb-5 text-base font-bold text-gray-900">Before you begin</h4>
+                 <h4 className="mb-5 flex items-center gap-2 text-base font-bold text-gray-900">
+                   <ClipboardList className="h-5 w-5 text-violet-600" />
+                   Before you begin
+                 </h4>
                  <ol className="space-y-5 text-sm text-gray-700">
                    {[
                      { title: 'Sit directly in front of the screen', sub: 'Position yourself so the screen is at eye level' },
@@ -323,8 +326,8 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
                      { title: 'Look straight ahead', sub: 'Keep your head still and face the screen directly' },
                      { title: 'Follow the on-screen positioning guide', sub: 'The next screen will confirm your position using the eye tracker' },
                    ].map(({ title, sub }, idx) => (
-                     <li key={idx} className="flex items-center gap-3">
-                       <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 border-violet-600 text-xs font-bold text-violet-600">{idx + 1}</div>
+                     <li key={idx} className="flex items-start gap-3">
+                       <CircleDot className="mt-0.5 h-5 w-5 shrink-0 text-violet-600" />
                        <div>
                          <span className="block font-semibold text-gray-900">{title}</span>
                          <span className="text-sm text-gray-500">{sub}</span>
