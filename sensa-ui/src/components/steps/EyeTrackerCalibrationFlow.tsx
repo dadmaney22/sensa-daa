@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { CheckCircle2, Check, XCircle, AlertCircle, CircleDot } from 'lucide-react';
+import { CheckCircle2, Check, XCircle, AlertCircle } from 'lucide-react';
 import calibrationDiagram from '../../assets/eyetrackpos.png';
 
 const DOT_COORDINATES = [
@@ -12,8 +12,7 @@ const DOT_COORDINATES = [
 
 export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () => void }) {
   const [step, setStep] = useState(1);
-  
-  const [positioningPhase, setPositioningPhase] = useState<'instructions' | 'tracking'>('instructions');
+
   const [positionReady, setPositionReady] = useState(false);
   const [liveDistance, setLiveDistance] = useState<number | null>(null);
 
@@ -52,9 +51,9 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
       .catch(() => setDeviceInfo(null));
   }, []);
 
-  // 1. Live Distance Positioning WebSocket Pipeline (Step 1b)
+  // 2. Live Distance Positioning WebSocket Pipeline (Step 2)
   useEffect(() => {
-    if (step === 1 && positioningPhase === 'tracking') {
+    if (step === 2) {
       const ws = new WebSocket('ws://localhost:8000/api/calibration/ws/position');
 
       ws.onmessage = (event) => {
@@ -75,7 +74,7 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
         ws.close();
       };
     }
-  }, [step, positioningPhase]);
+  }, [step]);
 
   // 2. Validation sequence — reads the live gaze stream and measures accuracy
   //    against each known target. (The 4C's gaze-model calibration itself is
@@ -139,7 +138,7 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
       }
       if (!cancelled) {
         setCalibrationPhase('done');
-        setStep(3);
+        setStep(4);
       }
     };
 
@@ -179,7 +178,7 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
           <div className="absolute top-16 w-full text-center text-sm font-medium text-gray-400">
             Validating tracking — focus on each dot as it lights up.
             <button
-              onClick={() => { setCalibrationPhase('done'); setStep(3); }}
+              onClick={() => { setCalibrationPhase('done'); setStep(4); }}
               className="block mx-auto mt-2 text-[10px] text-gray-800 hover:text-gray-500 cursor-pointer"
             >
               [Dev: Skip]
@@ -266,40 +265,42 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
             <div>
               <h3 className="text-lg font-bold text-gray-900">
                 Step {step}: <br/>
-                {step === 1 && 'Position the participant'}
-                {step === 2 && 'Run Calibration'}
-                {step === 3 && 'Validate Calibration Results'}
+                {step === 1 && 'Instructions'}
+                {step === 2 && 'Position the Participant'}
+                {step === 3 && 'Run Calibration'}
+                {step === 4 && 'Validate Calibration Results'}
               </h3>
             </div>
 
             {/* Stepper Graphic */}
             <div className="flex items-center">
-              {[1, 2, 3].map((i) => (
+              {[1, 2, 3, 4].map((i) => (
                 <div key={i} className="flex items-center">
                   <div className="flex flex-col items-center gap-2">
                     <div className={`flex h-6 w-6 items-center justify-center rounded-full border-2 ${
-                      step > i ? 'border-violet-600 bg-violet-600 text-white' : 
-                      step === i ? 'border-violet-600 bg-white text-violet-600' : 
+                      step > i ? 'border-violet-600 bg-violet-600 text-white' :
+                      step === i ? 'border-violet-600 bg-white text-violet-600' :
                       'border-gray-300 bg-white'
                     }`}>
                       {step > i ? <Check className="h-3 w-3" /> : <div className={`h-2 w-2 rounded-full ${step === i ? 'bg-violet-600' : 'bg-transparent'}`} />}
                     </div>
                     <span className="text-[10px] font-medium text-gray-500 uppercase">
-                      {i === 1 && 'Positioning'}
-                      {i === 2 && 'Calibration'}
-                      {i === 3 && 'Validation'}
+                      {i === 1 && 'Instructions'}
+                      {i === 2 && 'Positioning'}
+                      {i === 3 && 'Calibration'}
+                      {i === 4 && 'Validation'}
                     </span>
                   </div>
-                  {i < 3 && (
-                    <div className={`h-[2px] w-16 mb-6 ${step > i ? 'bg-violet-600' : 'bg-gray-200'}`} />
+                  {i < 4 && (
+                    <div className={`h-[2px] w-12 mb-6 ${step > i ? 'bg-violet-600' : 'bg-gray-200'}`} />
                   )}
                 </div>
               ))}
             </div>
           </div>
 
-          {/* STEP 1a: POSITIONING INSTRUCTIONS */}
-          {step === 1 && positioningPhase === 'instructions' && (
+          {/* STEP 1: INSTRUCTIONS */}
+          {step === 1 && (
             <div className="space-y-8 animate-in fade-in duration-300">
               <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
                 The eye tracker needs to detect both eyes clearly. Your position before calibration directly affects accuracy.
@@ -316,43 +317,31 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
               <div className="rounded-lg border border-gray-200 bg-gray-100/50 p-6">
                  <h4 className="mb-4 flex items-center gap-2 text-sm font-semibold text-gray-700">
                    <div className="flex h-4 w-4 items-center justify-center rounded bg-gray-300 text-[10px] font-bold text-gray-600">-</div>
-                   Instructions
+                   Before you begin
                  </h4>
-                 <ul className="space-y-5 text-sm text-gray-700">
-                   <li className="flex items-start gap-3">
-                     <CircleDot className="mt-0.5 h-5 w-5 shrink-0 text-violet-600" />
-                     <div>
-                       <span className="block font-semibold text-gray-900">Sit directly in front of the screen</span>
-                       <span className="text-sm text-gray-500">Position yourself so the screen is at eye level</span>
-                     </div>
-                   </li>
-                   <li className="flex items-start gap-3">
-                     <CircleDot className="mt-0.5 h-5 w-5 shrink-0 text-violet-600" />
-                     <div>
-                       <span className="block font-semibold text-gray-900">Maintain approximately 90 cm distance</span>
-                       <span className="text-sm text-gray-500">Roughly an arm's length from the monitor</span>
-                     </div>
-                   </li>
-                   <li className="flex items-start gap-3">
-                     <CircleDot className="mt-0.5 h-5 w-5 shrink-0 text-violet-600" />
-                     <div>
-                       <span className="block font-semibold text-gray-900">Look straight ahead</span>
-                       <span className="text-sm text-gray-500">Keep your head still and face the screen directly</span>
-                     </div>
-                   </li>
-                   <li className="flex items-start gap-3">
-                     <CircleDot className="mt-0.5 h-5 w-5 shrink-0 text-violet-600" />
-                     <div>
-                       <span className="block font-semibold text-gray-900">Click Continue to Positioning</span>
-                       <span className="text-sm text-gray-500">The next screen will confirm your position</span>
-                     </div>
-                   </li>
-                 </ul>
+                 <ol className="space-y-5 text-sm text-gray-700">
+                   {[
+                     { title: 'Sit directly in front of the screen', sub: 'Position yourself so the screen is at eye level' },
+                     { title: 'Maintain approximately 90 cm distance', sub: "Roughly an arm's length from the monitor" },
+                     { title: 'Look straight ahead', sub: 'Keep your head still and face the screen directly' },
+                     { title: 'Follow the on-screen positioning guide', sub: 'The next screen will confirm your position using the eye tracker' },
+                     { title: 'Complete the Tobii calibration when prompted', sub: "Tobii's software will guide you through the gaze calibration" },
+                     { title: 'Look at each dot during validation', sub: 'A 5-point accuracy check will confirm the calibration quality' },
+                   ].map(({ title, sub }, idx) => (
+                     <li key={idx} className="flex items-start gap-3">
+                       <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-violet-600 text-xs font-bold text-white mt-0.5">{idx + 1}</div>
+                       <div>
+                         <span className="block font-semibold text-gray-900">{title}</span>
+                         <span className="text-sm text-gray-500">{sub}</span>
+                       </div>
+                     </li>
+                   ))}
+                 </ol>
               </div>
 
               <div className="flex justify-center pt-2">
-                <button 
-                  onClick={() => setPositioningPhase('tracking')}
+                <button
+                  onClick={() => setStep(2)}
                   className="rounded-lg bg-violet-600 px-8 py-3 text-sm font-medium text-white transition-all hover:bg-violet-700"
                 >
                   Continue to Positioning
@@ -361,8 +350,8 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
             </div>
           )}
 
-          {/* STEP 1b: SELF CALIBRATION TRACKING */}
-          {step === 1 && positioningPhase === 'tracking' && (
+          {/* STEP 2: POSITIONING */}
+          {step === 2 && calibrationPhase === 'idle' && (
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
 
                <div className="relative flex w-full flex-col items-center justify-center overflow-hidden rounded-2xl bg-[#3B3E46] py-16 text-center shadow-inner">
@@ -392,7 +381,7 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
 
                   <button
                     disabled={!positionReady}
-                    onClick={() => setStep(2)}
+                    onClick={() => setStep(3)}
                     className="z-10 w-full max-w-xs rounded-lg bg-violet-600 py-3.5 text-sm font-bold text-white transition-all hover:bg-violet-700 disabled:bg-violet-400 disabled:opacity-50"
                   >
                     Go to Calibration
@@ -419,8 +408,8 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
             </div>
           )}
 
-          {/* STEP 2: RUN CALIBRATION (handled by Tobii's own software) */}
-          {step === 2 && (
+          {/* STEP 3: RUN CALIBRATION (handled by Tobii's own software) */}
+          {step === 3 && (
             <div className="space-y-6 animate-in fade-in duration-300">
               <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
                 The Tobii 4C calibrates through Tobii's own software. Click below to open the Tobii menu, choose <strong>Create New Profile</strong> (or Recalibrate) and follow Tobii's guided calibration, then return here to validate the result.
@@ -507,8 +496,8 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
             </div>
           )}
 
-          {/* STEP 3: VALIDATION */}
-          {step === 3 && (
+          {/* STEP 4: VALIDATION */}
+          {step === 4 && (
             <div className="space-y-6 animate-in fade-in duration-300">
               
               <div className={`flex items-center justify-between rounded-lg border p-4 text-sm font-medium ${
@@ -533,7 +522,6 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
                       setRecalibrationCount(c => c + 1);
                       setFirstPassSuccess(false);
                       setStep(1);
-                      setPositioningPhase('instructions');
                       setCalibrationPhase('idle');
                     }} className="flex w-full sm:w-auto items-center justify-center gap-2 rounded-lg bg-violet-600 px-6 py-2.5 text-sm font-medium text-white hover:bg-violet-700">
                       <AlertCircle className="h-4 w-4" /> Recalibrate Eye Tracker
@@ -694,7 +682,6 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
                       setRecalibrationCount(c => c + 1);
                       setFirstPassSuccess(false);
                       setStep(1);
-                      setPositioningPhase('instructions');
                       setCalibrationPhase('idle');
                     }}
                     className="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-900"
