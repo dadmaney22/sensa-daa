@@ -37,6 +37,12 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
   // Accuracy pass threshold (degrees of visual angle). Default 2.5° suits the
   // consumer-grade 4C; researchers can tighten/loosen it per study.
   const [passThreshold, setPassThreshold] = useState<number>(3.0);
+  const [validDataYield, setValidDataYield] = useState<number | null>(null);
+  const [recalibrationCount, setRecalibrationCount] = useState<number>(0);
+  // true if calibration was accepted without any prior recalibration
+  const [firstPassSuccess, setFirstPassSuccess] = useState<boolean | null>(null);
+  // full result snapshot used for export (kept in a ref so export button always has latest)
+  const exportRef = { recalibrationCount, firstPassSuccess };
 
   // Fetch hardware status once on mount
   useEffect(() => {
@@ -116,10 +122,14 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
         const results = await response.json();
 
         if (results.status === 'success') {
-          setValidationStatus(results.overall_quality.toLowerCase() === 'pass' ? 'passed' : 'failed');
+          const passed = results.overall_quality.toLowerCase() === 'pass';
+          setValidationStatus(passed ? 'passed' : 'failed');
           setAccuracy(results.accuracy_degrees ? `${results.accuracy_degrees.toFixed(2)}°` : '--');
           setPrecision(results.precision_degrees ? `${results.precision_degrees.toFixed(2)}°` : '--');
           setValidPoints(results.valid_count || 0);
+          setValidDataYield(results.valid_data_yield ?? null);
+          // First-pass success: true only if no recalibrations happened before this run
+          setFirstPassSuccess(prev => prev === null ? (recalibrationCount === 0) : prev);
         } else {
           setValidationStatus('failed');
         }
@@ -520,6 +530,8 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
                 ) : (
                   <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
                     <button onClick={() => {
+                      setRecalibrationCount(c => c + 1);
+                      setFirstPassSuccess(false);
                       setStep(1);
                       setPositioningPhase('instructions');
                       setCalibrationPhase('idle');
@@ -652,6 +664,22 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
                     </span>
                   </div>
                   <div className="flex justify-between border-b border-gray-50 pb-2">
+                    <span className="text-gray-600 flex items-center gap-2"><div className={`h-1.5 w-1.5 rounded-full ${validDataYield !== null && validDataYield >= 80 ? 'bg-green-500' : 'bg-red-500'}`}></div> Valid data yield</span>
+                    <span className={`font-semibold ${validDataYield !== null && validDataYield >= 80 ? 'text-green-600' : 'text-red-600'}`}>
+                      {validDataYield !== null ? `${validDataYield.toFixed(1)}%` : '--'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between border-b border-gray-50 pb-2">
+                    <span className="text-gray-600 flex items-center gap-2"><div className={`h-1.5 w-1.5 rounded-full ${firstPassSuccess ? 'bg-green-500' : 'bg-red-500'}`}></div> First-pass success</span>
+                    <span className={`font-semibold ${firstPassSuccess ? 'text-green-600' : 'text-red-600'}`}>
+                      {firstPassSuccess === null ? '--' : firstPassSuccess ? 'Yes' : 'No'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between border-b border-gray-50 pb-2">
+                    <span className="text-gray-600 flex items-center gap-2"><div className={`h-1.5 w-1.5 rounded-full ${recalibrationCount === 0 ? 'bg-green-500' : 'bg-amber-500'}`}></div> Recalibration attempts</span>
+                    <span className={`font-semibold ${recalibrationCount === 0 ? 'text-green-600' : 'text-amber-600'}`}>{recalibrationCount}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-gray-50 pb-2">
                     <span className="text-gray-600 flex items-center gap-2"><div className="h-1.5 w-1.5 rounded-full bg-gray-400"></div> Pass threshold</span>
                     <span className="font-semibold text-gray-700">≤ {passThreshold.toFixed(1)}°</span>
                   </div>
@@ -660,16 +688,47 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
                     <span className={`font-bold uppercase ${validationStatus === 'passed' ? 'text-green-600' : 'text-red-600'}`}>{validationStatus === 'passed' ? 'Passed' : 'Failed'}</span>
                   </div>
                 </div>
-                <div className="border-t border-gray-100 p-3">
-                   <button 
+                <div className="border-t border-gray-100 p-3 flex items-center justify-between">
+                   <button
                     onClick={() => {
+                      setRecalibrationCount(c => c + 1);
+                      setFirstPassSuccess(false);
                       setStep(1);
                       setPositioningPhase('instructions');
                       setCalibrationPhase('idle');
-                    }} 
+                    }}
                     className="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-900"
                    >
                      <AlertCircle className="h-4 w-4" /> Recalibrate Eye Tracker
+                   </button>
+                   <button
+                    onClick={() => {
+                      const data = {
+                        exported_at: new Date().toISOString(),
+                        device: deviceInfo,
+                        pass_threshold_degrees: passThreshold,
+                        screen_width_mm: 520,
+                        viewing_distance_mm: 600,
+                        overall_quality: validationStatus === 'passed' ? 'Pass' : 'Fail',
+                        accuracy_degrees: accuracy,
+                        precision_degrees: precision,
+                        valid_data_yield_pct: validDataYield,
+                        first_pass_success: firstPassSuccess ? 1 : 0,
+                        recalibration_attempts: recalibrationCount,
+                        points_detected: validPoints,
+                        point_results: pointResults,
+                      };
+                      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `sensa_calibration_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    }}
+                    className="flex items-center gap-1.5 text-sm font-medium text-violet-600 hover:text-violet-800"
+                   >
+                     ↓ Export results
                    </button>
                 </div>
               </div>

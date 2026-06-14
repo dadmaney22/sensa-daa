@@ -202,9 +202,10 @@ async def validate_point(point: PointRequest):
                 gxs.append(gp[0]); gys.append(gp[1])
 
     valid_samples = len(gxs)
+    total_samples = len(samples)
     if valid_samples == 0:
         result = {"x": point.x, "y": point.y, "valid": False, "valid_samples": 0,
-                  "accuracy_degrees": None}
+                  "total_samples": total_samples, "accuracy_degrees": None}
         _validation_points.append(result)
         return result
 
@@ -223,7 +224,8 @@ async def validate_point(point: PointRequest):
     prec_deg = math.degrees(math.atan2(spread_norm * SCREEN_WIDTH_MM, 600.0))
 
     result = {
-        "x": point.x, "y": point.y, "valid": True, "valid_samples": valid_samples,
+        "x": point.x, "y": point.y, "valid": True,
+        "valid_samples": valid_samples, "total_samples": total_samples,
         "accuracy_degrees": acc_deg, "precision_degrees": prec_deg,
         "mean_x": mean_x, "mean_y": mean_y,
     }
@@ -254,6 +256,10 @@ async def validate_finish(accuracy_pass_deg: float = ACCURACY_PASS_DEG):
     avg_acc = sum(p["accuracy_degrees"] for p in valid) / valid_count
     avg_prec = sum(p["precision_degrees"] for p in valid) / valid_count
 
+    total_valid = sum(p.get("valid_samples", 0) for p in _validation_points)
+    total_all = sum(p.get("total_samples", 0) for p in _validation_points)
+    valid_data_yield = round((total_valid / total_all * 100), 1) if total_all > 0 else 0.0
+
     overall = "Pass" if (valid_count >= MIN_VALID_POINTS and avg_acc <= threshold) else "Fail"
 
     return {
@@ -261,6 +267,7 @@ async def validate_finish(accuracy_pass_deg: float = ACCURACY_PASS_DEG):
         "overall_quality": overall,
         "accuracy_degrees": avg_acc,
         "precision_degrees": avg_prec,
+        "valid_data_yield": valid_data_yield,
         "valid_count": valid_count,
         "threshold_degrees": threshold,
         "points": _validation_points,
