@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { CheckCircle2, Check, XCircle, AlertCircle, CircleDot, ClipboardList } from 'lucide-react';
+import { CheckCircle2, Check, XCircle, AlertCircle } from 'lucide-react';
 import calibrationDiagram from '../../assets/eyetrackpos.png';
 
 const DOT_COORDINATES = [
@@ -302,39 +302,22 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
           {/* STEP 1: INSTRUCTIONS */}
           {step === 1 && (
             <div className="space-y-8 animate-in fade-in duration-300">
-              <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
-                The eye tracker needs to detect both eyes clearly. Your position before calibration directly affects accuracy.
-              </div>
-
               <div className="flex w-full items-center justify-center rounded-xl bg-white py-4">
-                <img 
-                  src={calibrationDiagram} 
-                  alt="Eye Tracker Positioning Diagram" 
-                  className="max-h-80 w-auto object-contain" 
+                <img
+                  src={calibrationDiagram}
+                  alt="Eye Tracker Positioning Diagram"
+                  className="max-h-80 w-auto object-contain"
                 />
               </div>
 
-              <div className="rounded-lg border border-gray-200 bg-gray-100/50 p-6">
-                 <h4 className="mb-5 flex items-center gap-2 text-base font-bold text-gray-900">
-                   <ClipboardList className="h-5 w-5 text-violet-600" />
-                   Before you begin
-                 </h4>
-                 <ol className="space-y-5 text-sm text-gray-700">
-                   {[
-                     { title: 'Sit directly in front of the screen', sub: 'Position yourself so the screen is at eye level' },
-                     { title: 'Maintain approximately 90 cm distance', sub: "Roughly an arm's length from the monitor" },
-                     { title: 'Look straight ahead', sub: 'Keep your head still and face the screen directly' },
-                     { title: 'Follow the on-screen positioning guide', sub: 'The next screen will confirm your position using the eye tracker' },
-                   ].map(({ title, sub }, idx) => (
-                     <li key={idx} className="flex items-start gap-3">
-                       <CircleDot className="mt-0.5 h-5 w-5 shrink-0 text-violet-600" />
-                       <div>
-                         <span className="block font-semibold text-gray-900">{title}</span>
-                         <span className="text-sm text-gray-500">{sub}</span>
-                       </div>
-                     </li>
-                   ))}
-                 </ol>
+              <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+                <h4 className="mb-4 text-xs font-bold uppercase tracking-wider text-gray-500">Instructions</h4>
+                <ol className="space-y-3 text-sm text-gray-700">
+                  <li>1. Sit directly in front of the screen at eye level</li>
+                  <li>2. Maintain approximately 90 cm distance from the monitor</li>
+                  <li>3. Keep your head still and face the screen directly</li>
+                  <li>4. The next screen will confirm your position using the eye tracker</li>
+                </ol>
               </div>
 
               <div className="flex justify-center pt-2">
