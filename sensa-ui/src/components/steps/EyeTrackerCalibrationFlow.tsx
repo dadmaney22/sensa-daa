@@ -315,21 +315,16 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
               </div>
 
               <div className="rounded-lg border border-gray-200 bg-gray-100/50 p-6">
-                 <h4 className="mb-4 flex items-center gap-2 text-sm font-semibold text-gray-700">
-                   <div className="flex h-4 w-4 items-center justify-center rounded bg-gray-300 text-[10px] font-bold text-gray-600">-</div>
-                   Before you begin
-                 </h4>
+                 <h4 className="mb-5 text-base font-bold text-gray-900">Before you begin</h4>
                  <ol className="space-y-5 text-sm text-gray-700">
                    {[
                      { title: 'Sit directly in front of the screen', sub: 'Position yourself so the screen is at eye level' },
                      { title: 'Maintain approximately 90 cm distance', sub: "Roughly an arm's length from the monitor" },
                      { title: 'Look straight ahead', sub: 'Keep your head still and face the screen directly' },
                      { title: 'Follow the on-screen positioning guide', sub: 'The next screen will confirm your position using the eye tracker' },
-                     { title: 'Complete the Tobii calibration when prompted', sub: "Tobii's software will guide you through the gaze calibration" },
-                     { title: 'Look at each dot during validation', sub: 'A 5-point accuracy check will confirm the calibration quality' },
                    ].map(({ title, sub }, idx) => (
-                     <li key={idx} className="flex items-start gap-3">
-                       <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-violet-600 text-xs font-bold text-white mt-0.5">{idx + 1}</div>
+                     <li key={idx} className="flex items-center gap-3">
+                       <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 border-violet-600 text-xs font-bold text-violet-600">{idx + 1}</div>
                        <div>
                          <span className="block font-semibold text-gray-900">{title}</span>
                          <span className="text-sm text-gray-500">{sub}</span>
