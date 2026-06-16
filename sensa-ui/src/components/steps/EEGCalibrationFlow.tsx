@@ -306,7 +306,7 @@ export default function EEGCalibrationFlow({ onFinish }: { onFinish: () => void 
                 <div className="space-y-2 px-1">
                   <label className="flex cursor-pointer items-center gap-3 text-sm text-gray-700 hover:text-gray-900">
                     <input type="checkbox" checked={step2Checks.includes('conn1')} onChange={() => toggleCheck('conn1', step2Checks, setStep2Checks)} className="h-4 w-4 rounded border-gray-300 text-violet-600 focus:ring-violet-600" />
-                    Plug ECG cable into an analog input port
+                    Plug EEG cable into an analog input port
                   </label>
                 </div>
               </div>
@@ -316,18 +316,18 @@ export default function EEGCalibrationFlow({ onFinish }: { onFinish: () => void 
                 <div className="space-y-2 px-1">
                   <label className="flex cursor-pointer items-center gap-3 text-sm text-gray-700 hover:text-gray-900">
                     <input type="checkbox" checked={step2Checks.includes('en1')} onChange={() => toggleCheck('en1', step2Checks, setStep2Checks)} className="h-4 w-4 rounded border-gray-300 text-violet-600 focus:ring-violet-600" />
-                    Setup ECG Channel on Hub
+                    Setup EEG Channel on Hub
                   </label>
                   <label className="flex cursor-pointer items-center gap-3 text-sm text-gray-700 hover:text-gray-900">
                     <input type="checkbox" checked={step2Checks.includes('en2')} onChange={() => toggleCheck('en2', step2Checks, setStep2Checks)} className="h-4 w-4 rounded border-gray-300 text-violet-600 focus:ring-violet-600" />
-                    Activate ECG channel in system
+                    Activate EEG channel in system
                     <span className={`ml-auto rounded px-2 py-0.5 text-[11px] font-medium ${hubConnected && eegPort !== undefined ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
                       {hubConnected && eegPort !== undefined ? `Channel ${eegPort}` : 'Detecting…'}
                     </span>
                   </label>
                   <label className="flex cursor-pointer items-center gap-3 text-sm text-gray-700 hover:text-gray-900">
                     <input type="checkbox" checked={step2Checks.includes('en3')} onChange={() => toggleCheck('en3', step2Checks, setStep2Checks)} className="h-4 w-4 rounded border-gray-300 text-violet-600 focus:ring-violet-600" />
-                    Set channel type to ECG
+                    Set channel type to EEG
                     <span className={`ml-auto rounded px-2 py-0.5 text-[11px] font-medium ${
                       eegSensor?.detected ? 'bg-green-100 text-green-700'
                       : hubConnected ? 'bg-yellow-100 text-yellow-700'
