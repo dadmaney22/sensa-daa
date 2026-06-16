@@ -26,6 +26,15 @@ OPTIMAL_MAX_MM = 700.0
 # of visual angle during validation. Adjust to match the study monitor.
 SCREEN_WIDTH_MM = 520.0
 
+# Fallback viewing distance (mm) if the tracker can't report a live distance.
+# The actual distance is measured from the position stream at the start of each
+# validation pass (see validate_start) and stored in _viewing_distance_mm.
+DEFAULT_VIEWING_DISTANCE_MM = 600.0
+# Sane bounds for a measured distance; anything outside is treated as garbage.
+_MIN_DISTANCE_MM = 300.0
+_MAX_DISTANCE_MM = 1200.0
+_viewing_distance_mm = DEFAULT_VIEWING_DISTANCE_MM
+
 # Default pass threshold for validation (degrees of visual angle). The 4C is a
 # consumer device that typically achieves 2-3° in real conditions, so 2.5° is a
 # reasonable default (3°). The frontend may override this per validation pass.
@@ -171,17 +180,45 @@ async def gaze_ws(websocket: WebSocket):
 
 @router.post("/validate/start")
 async def validate_start():
-    """Begin a validation pass by starting the live gaze stream."""
-    global _validation_points
+    """Begin a validation pass by starting the live gaze stream.
+
+    Before switching to gaze, briefly sample the position stream to measure the
+    participant's real viewing distance, so the accuracy-in-degrees conversion
+    reflects their actual seating distance instead of a fixed assumption."""
+    global _validation_points, _viewing_distance_mm
     _validation_points = []
+    _viewing_distance_mm = DEFAULT_VIEWING_DISTANCE_MM
 
     if not _bridge_available():
         raise HTTPException(status_code=400, detail="Eye tracker not available.")
+
+    # Best-effort live-distance capture. Only absolute-mm samples are usable;
+    # backends that report a normalized [0,1] track-box depth are skipped (the
+    # >_MIN_DISTANCE_MM check filters those out) and we keep the default.
+    try:
+        position_stream.start()
+        dists = []
+        for _ in range(20):
+            s = position_stream.latest()
+            d = _avg_distance_mm(s) if s else None
+            if d is not None and _MIN_DISTANCE_MM <= d <= _MAX_DISTANCE_MM:
+                dists.append(d)
+            await asyncio.sleep(0.05)
+        if dists:
+            _viewing_distance_mm = sum(dists) / len(dists)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Could not measure live viewing distance: %s", e)
+    finally:
+        try:
+            position_stream.stop()
+        except Exception:  # noqa: BLE001
+            pass
+
     try:
         gaze_stream.start()
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to start gaze stream: {e}")
-    return {"status": "validation_started"}
+    return {"status": "validation_started", "viewing_distance_mm": round(_viewing_distance_mm, 1)}
 
 
 @router.post("/validate/point")
@@ -224,16 +261,18 @@ async def validate_point(point: PointRequest):
     mean_x = sum(gxs) / valid_samples
     mean_y = sum(gys) / valid_samples
 
-    # Accuracy: normalized error -> mm on screen -> degrees at ~600mm.
+    # Accuracy: normalized error -> mm on screen -> degrees at the measured
+    # viewing distance (captured in validate_start; falls back to the default).
+    dist_mm = _viewing_distance_mm
     err_norm = math.hypot(mean_x - point.x, mean_y - point.y)
     err_mm = err_norm * SCREEN_WIDTH_MM
-    acc_deg = math.degrees(math.atan2(err_mm, 600.0))
+    acc_deg = math.degrees(math.atan2(err_mm, dist_mm))
 
     # Precision: spread of samples around their own mean (RMS), -> degrees.
     spread_norm = math.sqrt(
         sum((sx - mean_x) ** 2 + (sy - mean_y) ** 2 for sx, sy in zip(gxs, gys)) / valid_samples
     )
-    prec_deg = math.degrees(math.atan2(spread_norm * SCREEN_WIDTH_MM, 600.0))
+    prec_deg = math.degrees(math.atan2(spread_norm * SCREEN_WIDTH_MM, dist_mm))
 
     result = {
         "x": point.x, "y": point.y, "valid": True,
