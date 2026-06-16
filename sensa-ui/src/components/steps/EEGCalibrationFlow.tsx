@@ -237,7 +237,7 @@ export default function EEGCalibrationFlow({ onFinish }: { onFinish: () => void 
           <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
             <div>
               <p className="mb-4 text-center text-sm font-semibold text-gray-700">Live EEG waveform preview:</p>
-              <div className="flex h-48 w-full items-center justify-center overflow-hidden rounded-lg border border-gray-100 bg-gray-50/50 p-4">
+              <div className="h-48 w-full overflow-hidden rounded-lg border border-gray-100 bg-gray-50/50">
                 {chartData.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={chartData}>
@@ -253,7 +253,9 @@ export default function EEGCalibrationFlow({ onFinish }: { onFinish: () => void 
                     </LineChart>
                   </ResponsiveContainer>
                 ) : (
-                  <span className="text-xs text-gray-400">Awaiting sensor data...</span>
+                  <div className="flex h-full w-full items-center justify-center">
+                    <span className="text-xs text-gray-400">Awaiting sensor data...</span>
+                  </div>
                 )}
               </div>
             </div>
