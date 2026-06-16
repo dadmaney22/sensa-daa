@@ -30,7 +30,15 @@ export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void 
   // Bumping this re-runs the WebSocket effect (used by "Run Signal Check").
   const [wsAttempt, setWsAttempt] = useState(0);
   const [pluxStatus, setPluxStatus] = useState<
-    { plux_available: boolean; device_address: string | null; channel_map: Record<string, number>; import_error?: string | null } | null
+    {
+      plux_available: boolean;
+      device_address: string | null;
+      channel_map: Record<string, number>;
+      sensors?: { type: string | null; port: number; clas: number | null; detected: boolean }[];
+      running?: boolean;
+      import_error?: string | null;
+      error?: string | null;
+    } | null
   >(null);
 
   // Step 4 State
@@ -48,6 +56,11 @@ export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void 
   const metrics = useMemo(() => computeSignalMetrics(chartData.map(d => d.uv)), [chartData]);
   const ampTone = toneClasses(metrics?.amplitudeQuality.tone ?? 'idle');
   const noiseTone = toneClasses(metrics?.noiseQuality.tone ?? 'idle');
+
+  // Live hub readout for Step 2 (which channel EDA is on, sensor detected, etc.)
+  const hubConnected = !!pluxStatus?.running && !!pluxStatus?.device_address;
+  const edaPort = pluxStatus?.channel_map?.eda;
+  const edaSensor = pluxStatus?.sensors?.find(s => s.type === 'eda');
 
   // ==========================================
   // 1. LIVE WEBSOCKET CONNECTION (reconnectable)
@@ -99,6 +112,30 @@ export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void 
       .then(setPluxStatus)
       .catch(() => setPluxStatus(null));
   }, [step, wsAttempt]);
+
+  // Step 2: poll the hub so the setup screen shows, live, which channel the
+  // EDA sensor is on and whether the hub actually reports a sensor there.
+  // /api/plux/detect connects (idempotent) and returns the channel/sensor map.
+  // Polled sequentially (chained timeout) so a slow Bluetooth scan can't stack.
+  useEffect(() => {
+    if (step !== 2) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+
+    const poll = async () => {
+      try {
+        const res = await fetch('http://localhost:8000/api/plux/detect');
+        const data = await res.json();
+        if (!cancelled) setPluxStatus(data);
+      } catch {
+        if (!cancelled) setPluxStatus(null);
+      }
+      if (!cancelled) timer = setTimeout(poll, 3000);
+    };
+    poll();
+
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [step]);
 
   // ==========================================
   // 2. REAL HARDWARE RECORDING LOGIC
@@ -251,6 +288,36 @@ export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void 
                <div className="flex items-center justify-center rounded-lg border border-gray-200 bg-white py-6">
                  <img src={edaDevicePng} alt="Device hub connection guide" className="w-full max-w-sm object-contain" />
                </div>
+
+               {/* Live hub status — updates as the user plugs in the sensor */}
+               <div className="rounded-lg border border-gray-200 bg-white">
+                 <h4 className="border-b border-gray-200 bg-gray-100 px-4 py-2 text-xs font-bold uppercase text-gray-700 flex items-center gap-2">
+                   <div className={`h-1.5 w-1.5 rounded-full ${hubConnected ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`}></div>
+                   Live Hub Status
+                 </h4>
+                 <div className="space-y-2 p-4 text-sm">
+                   <div className="flex justify-between gap-4">
+                     <span className="text-gray-600">Device</span>
+                     <span className="font-medium text-gray-900 text-right break-all">
+                       {pluxStatus?.device_address
+                         || (pluxStatus?.plux_available === false ? 'plux.pyd not loaded' : 'Scanning…')}
+                     </span>
+                   </div>
+                   <div className="flex justify-between">
+                     <span className="text-gray-600">EDA channel</span>
+                     <span className="font-medium text-gray-900">{edaPort !== undefined ? edaPort : '—'}</span>
+                   </div>
+                   <div className="flex justify-between">
+                     <span className="text-gray-600">Sensor on channel</span>
+                     <span className={`font-medium ${edaSensor?.detected ? 'text-green-600' : 'text-gray-500'}`}>
+                       {edaSensor?.detected
+                         ? `Detected${edaSensor.clas != null ? ` (class ${edaSensor.clas})` : ''}`
+                         : hubConnected ? 'Using default' : '—'}
+                     </span>
+                   </div>
+                   {pluxStatus?.error && <div className="text-[11px] text-red-500">{pluxStatus.error}</div>}
+                 </div>
+               </div>
             </div>
             
             <div className="space-y-6">
@@ -279,10 +346,22 @@ export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void 
                   <label className="flex cursor-pointer items-center gap-3 text-sm text-gray-700 hover:text-gray-900">
                     <input type="checkbox" checked={step2Checks.includes('en2')} onChange={() => toggleCheck('en2', step2Checks, setStep2Checks)} className="h-4 w-4 rounded border-gray-300 text-violet-600 focus:ring-violet-600" />
                     Activate EDA channel in system
+                    <span className={`ml-auto rounded px-2 py-0.5 text-[11px] font-medium ${hubConnected && edaPort !== undefined ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                      {hubConnected && edaPort !== undefined ? `Channel ${edaPort}` : 'Detecting…'}
+                    </span>
                   </label>
                   <label className="flex cursor-pointer items-center gap-3 text-sm text-gray-700 hover:text-gray-900">
                     <input type="checkbox" checked={step2Checks.includes('en3')} onChange={() => toggleCheck('en3', step2Checks, setStep2Checks)} className="h-4 w-4 rounded border-gray-300 text-violet-600 focus:ring-violet-600" />
                     Set channel type to EDA
+                    <span className={`ml-auto rounded px-2 py-0.5 text-[11px] font-medium ${
+                      edaSensor?.detected ? 'bg-green-100 text-green-700'
+                      : hubConnected ? 'bg-yellow-100 text-yellow-700'
+                      : 'bg-gray-100 text-gray-500'}`}>
+                      {edaSensor?.detected
+                        ? `EDA sensor${edaSensor.clas != null ? ` (class ${edaSensor.clas})` : ''}`
+                        : hubConnected ? `Default ch ${edaPort ?? '?'}`
+                        : 'Detecting…'}
+                    </span>
                   </label>
                 </div>
               </div>

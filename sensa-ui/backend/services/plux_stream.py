@@ -195,6 +195,9 @@ class PluxManager:
         # so a frame's data[i] corresponds to port_order[i].
         self._channel_map: dict[str, int] = {}
         self._port_order: list[int] = []
+        # Per-port sensor info discovered via getSensors(): each entry is
+        # {"port", "clas", "type", "detected"}. Drives the Step 2 live readout.
+        self._sensors: list[dict] = []
 
         maxlen = SAMPLING_RATE * ROLLING_BUFFER_SECONDS
         self._buffer: deque = deque(maxlen=maxlen)
@@ -304,6 +307,7 @@ class PluxManager:
         """
         channel_map: dict[str, int] = {}
         active_ports: set[int] = set()
+        port_clas: dict[int, object] = {}  # port -> raw class code from getSensors()
 
         try:
             sensors = device.getSensors()  # {port: sensor}
@@ -315,6 +319,7 @@ class PluxManager:
             clas = getattr(sensor, "clas", None)
             logger.info("PLUX sensor on port %s: clas=%s", port, clas)
             active_ports.add(int(port))
+            port_clas[int(port)] = clas
             key = SENSOR_CLASS_MAP.get(clas)
             if key and key not in channel_map:
                 channel_map[key] = int(port)
@@ -324,6 +329,19 @@ class PluxManager:
             if key not in channel_map:
                 channel_map[key] = default_port
                 active_ports.add(default_port)
+
+        # Per-channel summary for the UI: which port each sensor is on, its raw
+        # class code, and whether the hub actually reported a sensor there (vs a
+        # configured fallback default).
+        self._sensors = [
+            {
+                "type": key,
+                "port": port,
+                "clas": port_clas.get(port),
+                "detected": port in port_clas,
+            }
+            for key, port in channel_map.items()
+        ]
 
         port_order = sorted(active_ports)
         return channel_map, port_order
@@ -428,6 +446,7 @@ class PluxManager:
                 "import_error": _plux_import_error or None,
                 "device_address": self._device_address,
                 "channel_map": dict(self._channel_map),
+                "sensors": [dict(s) for s in self._sensors],
                 "running": self._running,
                 "recording": self._recording,
             }

@@ -30,6 +30,19 @@ async def plux_status():
     return plux_manager.status()
 
 
+@router.get("/api/plux/detect")
+async def plux_detect():
+    """Ensure the hub is connected (idempotent) and report the live channel /
+    sensor map. Used by the Step 2 setup screen to show which channel each
+    sensor is on as the user plugs things in. Errors are returned in-band so
+    the UI can show "not detected yet" instead of failing the request."""
+    try:
+        await asyncio.to_thread(plux_manager.start)
+    except Exception as exc:  # noqa: BLE001
+        return {**plux_manager.status(), "error": str(exc)}
+    return plux_manager.status()
+
+
 @router.get("/api/plux/scan")
 async def plux_scan():
     """Run a Bluetooth scan and report every PLUX device found, without
