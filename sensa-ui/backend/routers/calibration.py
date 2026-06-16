@@ -194,12 +194,24 @@ async def validate_point(point: PointRequest):
     # collect() blocks ~1.5s, so run it off the event loop.
     samples = await asyncio.to_thread(gaze_stream.collect, 1.5)
 
+    # Average both eyes per sample — same as the live gaze cursor (/ws/gaze) so
+    # what the user sees on screen matches what we score. Using the left eye
+    # alone (as before) caused points to fail even when the binocular cursor sat
+    # dead-on the target.
     gxs, gys = [], []
     for s in samples:
+        exs, eys = [], []
         if s.get("left_gaze_point_validity"):
             gp = s.get("left_gaze_point_on_display_area")
             if gp:
-                gxs.append(gp[0]); gys.append(gp[1])
+                exs.append(gp[0]); eys.append(gp[1])
+        if s.get("right_gaze_point_validity"):
+            gp = s.get("right_gaze_point_on_display_area")
+            if gp:
+                exs.append(gp[0]); eys.append(gp[1])
+        if exs:
+            gxs.append(sum(exs) / len(exs))
+            gys.append(sum(eys) / len(eys))
 
     valid_samples = len(gxs)
     total_samples = len(samples)

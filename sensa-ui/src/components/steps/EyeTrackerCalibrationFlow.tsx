@@ -185,22 +185,27 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
             </button>
           </div>
 
-          {/* Full Screen Calibration Targets */}
-          {[
-            'absolute left-16 top-16',
-            'absolute right-16 top-16',
-            'absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2',
-            'absolute bottom-16 left-16',
-            'absolute bottom-16 right-16',
-          ].map((cls, i) => {
+          {/* Full Screen Calibration Targets — positioned from DOT_COORDINATES
+              so the dot the user fixates is exactly the point we score against. */}
+          {DOT_COORDINATES.map((coord, i) => {
             const st = pointStatuses[i];
             const isActive = activeDot === i;
             const bg = isActive ? '#7C3AED' : st === 'success' ? '#10B981' : st === 'fail' ? '#EF4444' : 'transparent';
             const border = isActive ? '#7C3AED' : st === 'success' ? '#10B981' : st === 'fail' ? '#EF4444' : '#374151';
             return (
-              <div key={i} className={`${cls} h-8 w-8 rounded-full border-2 transition-all duration-700 ease-in-out`}
-                style={{ backgroundColor: bg, borderColor: border, transform: isActive ? 'scale(1.2)' : 'scale(1)' }}
-              />
+              <div key={i}
+                className="absolute h-14 w-14 rounded-full border-[3px] transition-all duration-700 ease-in-out flex items-center justify-center"
+                style={{
+                  left: `${coord.x * 100}%`,
+                  top: `${coord.y * 100}%`,
+                  backgroundColor: bg,
+                  borderColor: border,
+                  transform: `translate(-50%, -50%) scale(${isActive ? 1.25 : 1})`,
+                }}
+              >
+                {/* Inner bullseye dot to give the eye a precise fixation target */}
+                <div className="h-2.5 w-2.5 rounded-full bg-white/90" />
+              </div>
             );
           })}
 
