@@ -21,10 +21,23 @@ export default function ECGCalibrationFlow({ onFinish }: { onFinish: () => void 
   // Step 3 State
   const [signalStatus, setSignalStatus] = useState<'unknown' | 'checking' | 'good'>('unknown');
   const [wsState, setWsState] = useState<'idle' | 'connecting' | 'streaming' | 'error' | 'closed'>('idle');
+  const [pluxStatus, setPluxStatus] = useState<
+    {
+      plux_available: boolean;
+      device_address: string | null;
+      channel_map: Record<string, number>;
+      sensors?: { type: string | null; port: number; clas: number | null; detected: boolean }[];
+      running?: boolean;
+      import_error?: string | null;
+      error?: string | null;
+    } | null
+  >(null);
 
   // Step 4 State
   const [recordingState, setRecordingState] = useState<'idle' | 'recording' | 'done'>('idle');
   const [saveData, setSaveData] = useState<{ filename: string; rows: number } | null>(null);
+  // Baseline stability verdict from the backend (computed over the full recording).
+  const [baseline, setBaseline] = useState<{ stable: boolean | null; reason?: string } | null>(null);
 
   // Rolling buffer of the last 60 live samples for the waveform preview
   const [chartData, setChartData] = useState<{ uv: number }[]>([]);
@@ -37,6 +50,33 @@ export default function ECGCalibrationFlow({ onFinish }: { onFinish: () => void 
   const toggleCheck = (id: string, _current: string[], setter: React.Dispatch<React.SetStateAction<string[]>>) => {
     setter(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   };
+
+  // Live hub readout for Step 2 (which channel ECG is on, sensor detected, etc.)
+  const hubConnected = !!pluxStatus?.running && !!pluxStatus?.device_address;
+  const ecgPort = pluxStatus?.channel_map?.ecg;
+  const ecgSensor = pluxStatus?.sensors?.find(s => s.type === 'ecg');
+
+  // Step 2: poll the hub so the setup screen shows, live, which channel the
+  // ECG sensor is on and whether the hub actually reports a sensor there.
+  useEffect(() => {
+    if (step !== 2) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+
+    const poll = async () => {
+      try {
+        const res = await fetch('http://localhost:8000/api/plux/detect');
+        const data = await res.json();
+        if (!cancelled) setPluxStatus(data);
+      } catch {
+        if (!cancelled) setPluxStatus(null);
+      }
+      if (!cancelled) timer = setTimeout(poll, 3000);
+    };
+    poll();
+
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [step]);
 
   // Live WebSocket to the biosignalsplux hub (shared stream). Connects once we
   // reach the Signal Check step; reads this flow's ecg_raw channel.
@@ -67,10 +107,15 @@ export default function ECGCalibrationFlow({ onFinish }: { onFinish: () => void 
   const startRealRecording = async () => {
     setRecordingState('recording');
     setSaveData(null);
+    setBaseline(null);
     try {
       await fetch('http://localhost:8000/api/record/start', { method: 'POST' });
       setTimeout(async () => {
-        await fetch('http://localhost:8000/api/record/stop', { method: 'POST' });
+        const stopRes = await fetch('http://localhost:8000/api/record/stop', { method: 'POST' });
+        const stopInfo = await stopRes.json();
+        // Backend assesses stability over the full recording; read the ECG verdict.
+        const q = stopInfo?.quality?.ecg;
+        setBaseline(q ? { stable: q.stable, reason: q.reason } : { stable: null });
         const res = await fetch('http://localhost:8000/api/record/save', { method: 'POST' });
         const info = await res.json();
         setSaveData({ filename: info.filename, rows: info.rows });
@@ -98,8 +143,8 @@ export default function ECGCalibrationFlow({ onFinish }: { onFinish: () => void 
   return (
     <div className="animate-in fade-in slide-in-from-right-4 duration-300">
       
-      {/* SUCCESS BANNER (Only in Step 4 when done) */}
-      {step === 4 && recordingState === 'done' && (
+      {/* SUCCESS BANNER (only when the baseline is actually stable) */}
+      {step === 4 && recordingState === 'done' && baseline?.stable !== false && (
         <div className="mb-6 flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 p-4 text-sm font-medium text-green-800">
           <CheckCircle2 className="h-5 w-5 text-green-600" />
           ECG Sensor Successfully calibrated.
@@ -216,6 +261,36 @@ export default function ECGCalibrationFlow({ onFinish }: { onFinish: () => void 
                <div className="flex items-center justify-center rounded-lg border border-gray-200 bg-white py-6">
                  <img src={ecgDevicePng} alt="Device hub connection guide" className="w-full max-w-sm object-contain" />
                </div>
+
+               {/* Live hub status — updates as the user plugs in the sensor */}
+               <div className="rounded-lg border border-gray-200 bg-white">
+                 <h4 className="border-b border-gray-200 bg-gray-100 px-4 py-2 text-xs font-bold uppercase text-gray-700 flex items-center gap-2">
+                   <div className={`h-1.5 w-1.5 rounded-full ${hubConnected ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`}></div>
+                   Live Hub Status
+                 </h4>
+                 <div className="space-y-2 p-4 text-sm">
+                   <div className="flex justify-between gap-4">
+                     <span className="text-gray-600">Device</span>
+                     <span className="font-medium text-gray-900 text-right break-all">
+                       {pluxStatus?.device_address
+                         || (pluxStatus?.plux_available === false ? 'plux.pyd not loaded' : 'Scanning…')}
+                     </span>
+                   </div>
+                   <div className="flex justify-between">
+                     <span className="text-gray-600">ECG channel</span>
+                     <span className="font-medium text-gray-900">{ecgPort !== undefined ? ecgPort : '—'}</span>
+                   </div>
+                   <div className="flex justify-between">
+                     <span className="text-gray-600">Sensor on channel</span>
+                     <span className={`font-medium ${ecgSensor?.detected ? 'text-green-600' : 'text-gray-500'}`}>
+                       {ecgSensor?.detected
+                         ? `Detected${ecgSensor.clas != null ? ` (class ${ecgSensor.clas})` : ''}`
+                         : hubConnected ? 'Using default' : '—'}
+                     </span>
+                   </div>
+                   {pluxStatus?.error && <div className="text-[11px] text-red-500">{pluxStatus.error}</div>}
+                 </div>
+               </div>
             </div>
             
             <div className="space-y-6">
@@ -244,10 +319,22 @@ export default function ECGCalibrationFlow({ onFinish }: { onFinish: () => void 
                   <label className="flex cursor-pointer items-center gap-3 text-sm text-gray-700 hover:text-gray-900">
                     <input type="checkbox" checked={step2Checks.includes('en2')} onChange={() => toggleCheck('en2', step2Checks, setStep2Checks)} className="h-4 w-4 rounded border-gray-300 text-violet-600 focus:ring-violet-600" />
                     Activate ECG channel in system
+                    <span className={`ml-auto rounded px-2 py-0.5 text-[11px] font-medium ${hubConnected && ecgPort !== undefined ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                      {hubConnected && ecgPort !== undefined ? `Channel ${ecgPort}` : 'Detecting…'}
+                    </span>
                   </label>
                   <label className="flex cursor-pointer items-center gap-3 text-sm text-gray-700 hover:text-gray-900">
                     <input type="checkbox" checked={step2Checks.includes('en3')} onChange={() => toggleCheck('en3', step2Checks, setStep2Checks)} className="h-4 w-4 rounded border-gray-300 text-violet-600 focus:ring-violet-600" />
                     Set channel type to ECG
+                    <span className={`ml-auto rounded px-2 py-0.5 text-[11px] font-medium ${
+                      ecgSensor?.detected ? 'bg-green-100 text-green-700'
+                      : hubConnected ? 'bg-yellow-100 text-yellow-700'
+                      : 'bg-gray-100 text-gray-500'}`}>
+                      {ecgSensor?.detected
+                        ? `ECG sensor${ecgSensor.clas != null ? ` (class ${ecgSensor.clas})` : ''}`
+                        : hubConnected ? `Default ch ${ecgPort ?? '?'}`
+                        : 'Detecting…'}
+                    </span>
                   </label>
                 </div>
               </div>
@@ -426,9 +513,23 @@ export default function ECGCalibrationFlow({ onFinish }: { onFinish: () => void 
                     <span className={`font-medium ${noiseTone.text}`}>{metrics ? metrics.noiseQuality.label : 'Checking...'}</span>
                   </div>
                   <div className="flex justify-between pt-2 border-t border-gray-100 mt-2">
-                    <span className="text-gray-600 flex items-center gap-2"><div className="h-1.5 w-1.5 rounded-full bg-gray-400"></div> Baseline</span>
-                    <span className={`text-xs font-medium ${recordingState === 'done' ? 'text-green-600' : 'text-gray-500'}`}>
-                      {recordingState === 'idle' ? 'unknown' : recordingState === 'recording' ? 'recording...' : 'Stable'}
+                    <span className="text-gray-600 flex items-center gap-2">
+                      <div className={`h-1.5 w-1.5 rounded-full ${
+                        recordingState !== 'done' ? 'bg-gray-400'
+                        : baseline?.stable === true ? 'bg-green-500'
+                        : baseline?.stable === false ? 'bg-red-500'
+                        : 'bg-gray-400'}`}></div> Baseline
+                    </span>
+                    <span className={`text-xs font-medium ${
+                      recordingState !== 'done' ? 'text-gray-500'
+                      : baseline?.stable === true ? 'text-green-600'
+                      : baseline?.stable === false ? 'text-red-600'
+                      : 'text-gray-500'}`}>
+                      {recordingState === 'idle' ? 'unknown'
+                        : recordingState === 'recording' ? 'recording...'
+                        : baseline?.stable === true ? 'Stable'
+                        : baseline?.stable === false ? 'Unstable'
+                        : 'Recorded'}
                     </span>
                   </div>
                 </div>
@@ -445,6 +546,16 @@ export default function ECGCalibrationFlow({ onFinish }: { onFinish: () => void 
                    <li>3. Keep arms relaxed</li>
                  </ul>
               </div>
+
+              {recordingState === 'done' && baseline?.stable === false && (
+                <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 animate-in fade-in duration-300">
+                  <AlertCircle className="h-5 w-5 shrink-0 text-red-600" />
+                  <span>
+                    Baseline looks unstable{baseline.reason ? ` (${baseline.reason})` : ''}. Keep still
+                    and press <span className="font-medium">Record Again</span> for a cleaner baseline.
+                  </span>
+                </div>
+              )}
 
               {recordingState === 'done' && (
                 <div className="flex gap-3 justify-end pt-4 animate-in fade-in zoom-in-95 duration-300">

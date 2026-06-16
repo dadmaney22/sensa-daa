@@ -115,8 +115,8 @@ async def record_start():
 
 @router.post("/api/record/stop")
 async def record_stop():
-    count = plux_manager.stop_recording()
-    return {"status": "stopped", "sample_count": count}
+    result = plux_manager.stop_recording()
+    return {"status": "stopped", **result}
 
 
 @router.post("/api/record/save")

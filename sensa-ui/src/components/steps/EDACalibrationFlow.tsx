@@ -48,6 +48,8 @@ export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void 
 
   const [recordingState, setRecordingState] = useState<'idle' | 'recording' | 'done'>('idle');
   const [saveData, setSaveData] = useState<{ filename: string; rows: number } | null>(null);
+  // Baseline stability verdict from the backend (computed over the full recording).
+  const [baseline, setBaseline] = useState<{ stable: boolean | null; reason?: string } | null>(null);
 
   // Rolling buffer of the last ~120 live samples for the chart
   const [chartData, setChartData] = useState<{ uv: number }[]>([]);
@@ -143,10 +145,15 @@ export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void 
   const startRealRecording = async () => {
     setRecordingState('recording');
     setSaveData(null);
+    setBaseline(null);
     try {
       await fetch('http://localhost:8000/api/record/start', { method: 'POST' });
       setTimeout(async () => {
-        await fetch('http://localhost:8000/api/record/stop', { method: 'POST' });
+        const stopRes = await fetch('http://localhost:8000/api/record/stop', { method: 'POST' });
+        const stopInfo = await stopRes.json();
+        // Backend assesses stability over the full recording; read the EDA verdict.
+        const q = stopInfo?.quality?.eda;
+        setBaseline(q ? { stable: q.stable, reason: q.reason } : { stable: null });
         const res = await fetch('http://localhost:8000/api/record/save', { method: 'POST' });
         const info = await res.json();
         setSaveData({ filename: info.filename, rows: info.rows });
@@ -175,8 +182,8 @@ export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void 
   return (
     <div className="animate-in fade-in slide-in-from-right-4 duration-300">
       
-      {/* SUCCESS BANNER */}
-      {step === 4 && recordingState === 'done' && (
+      {/* SUCCESS BANNER (only when the baseline is actually stable) */}
+      {step === 4 && recordingState === 'done' && baseline?.stable !== false && (
         <div className="mb-6 flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 p-4 text-sm font-medium text-green-800">
           <CheckCircle2 className="h-5 w-5 text-green-600" />
           EDA Sensor Successfully calibrated.
@@ -560,9 +567,23 @@ export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void 
                     <span className={`font-medium ${noiseTone.text}`}>{metrics ? metrics.noiseQuality.label : 'Checking...'}</span>
                   </div>
                   <div className="flex justify-between pt-2 border-t border-gray-100 mt-2">
-                    <span className="text-gray-600 flex items-center gap-2"><div className="h-1.5 w-1.5 rounded-full bg-gray-400"></div> Baseline</span>
-                    <span className={`text-xs font-medium ${recordingState === 'done' ? 'text-green-600' : 'text-gray-500'}`}>
-                      {recordingState === 'idle' ? 'unknown' : recordingState === 'recording' ? 'recording...' : 'Stable'}
+                    <span className="text-gray-600 flex items-center gap-2">
+                      <div className={`h-1.5 w-1.5 rounded-full ${
+                        recordingState !== 'done' ? 'bg-gray-400'
+                        : baseline?.stable === true ? 'bg-green-500'
+                        : baseline?.stable === false ? 'bg-red-500'
+                        : 'bg-gray-400'}`}></div> Baseline
+                    </span>
+                    <span className={`text-xs font-medium ${
+                      recordingState !== 'done' ? 'text-gray-500'
+                      : baseline?.stable === true ? 'text-green-600'
+                      : baseline?.stable === false ? 'text-red-600'
+                      : 'text-gray-500'}`}>
+                      {recordingState === 'idle' ? 'unknown'
+                        : recordingState === 'recording' ? 'recording...'
+                        : baseline?.stable === true ? 'Stable'
+                        : baseline?.stable === false ? 'Unstable'
+                        : 'Recorded'}
                     </span>
                   </div>
                 </div>
@@ -579,6 +600,16 @@ export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void 
                    <li>3. Breathe normally while recording</li>
                  </ul>
               </div>
+
+              {recordingState === 'done' && baseline?.stable === false && (
+                <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 animate-in fade-in duration-300">
+                  <AlertCircle className="h-5 w-5 shrink-0 text-red-600" />
+                  <span>
+                    Baseline looks unstable{baseline.reason ? ` (${baseline.reason})` : ''}. Keep the hand still
+                    and press <span className="font-medium">Record Again</span> for a cleaner baseline.
+                  </span>
+                </div>
+              )}
 
               {recordingState === 'done' && (
                 <div className="flex gap-3 justify-end pt-4 animate-in fade-in zoom-in-95 duration-300">

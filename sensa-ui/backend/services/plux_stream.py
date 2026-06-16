@@ -57,6 +57,14 @@ SENSOR_CLASS_MAP = {
     # clas_code: "eda" | "ecg" | "eeg"
 }
 
+# Baseline-stability thresholds (used to judge a finished recording). A clean
+# resting baseline is smooth: sample-to-sample noise is small relative to the
+# overall swing, and there are few large motion spikes. Tunable via env.
+# noise_ratio = median(|Δ|) / peak-to-peak;  spike = |Δ| > BASELINE_SPIKE_K * median(|Δ|).
+BASELINE_MAX_NOISE_RATIO = float(os.environ.get("SENSA_BASELINE_MAX_NOISE_RATIO", "0.20"))
+BASELINE_MAX_SPIKE_FRACTION = float(os.environ.get("SENSA_BASELINE_MAX_SPIKE_FRACTION", "0.05"))
+BASELINE_SPIKE_K = float(os.environ.get("SENSA_BASELINE_SPIKE_K", "6"))
+
 # ---------------------------------------------------------------------------
 # plux.pyd location + import
 # ---------------------------------------------------------------------------
@@ -376,12 +384,58 @@ class PluxManager:
             self._recording = True
         logger.info("PLUX recording started")
 
-    def stop_recording(self) -> int:
+    def stop_recording(self) -> dict:
+        """Stop recording and assess baseline stability over the captured rows.
+
+        Returns {"sample_count", "quality": {<channel>: {...}}} so the UI can
+        show whether the baseline is stable (and prompt a re-record if not).
+        """
         with self._lock:
             self._recording = False
-            count = len(self._recorded_rows)
-        logger.info("PLUX recording stopped (%d rows)", count)
-        return count
+            rows = list(self._recorded_rows)
+            keys = list(self._channel_map.keys())
+        quality = self._baseline_quality(rows, keys)
+        logger.info("PLUX recording stopped (%d rows) quality=%s", len(rows), quality)
+        return {"sample_count": len(rows), "quality": quality}
+
+    @staticmethod
+    def _baseline_quality(rows: list[dict], keys: list[str]) -> dict:
+        """Per-channel baseline stability verdict from the recorded rows."""
+        result: dict[str, dict] = {}
+        for key in keys:
+            vals = [r.get(f"{key}_raw") for r in rows]
+            vals = [v for v in vals if v is not None]
+            if len(vals) < 50:
+                result[key] = {"stable": None, "reason": "too few samples"}
+                continue
+
+            amplitude = max(vals) - min(vals)
+            diffs = sorted(abs(vals[i] - vals[i - 1]) for i in range(1, len(vals)))
+            noise = diffs[len(diffs) // 2]  # median |Δ|
+            noise_ratio = (noise / amplitude) if amplitude > 0 else 0.0
+
+            spike_threshold = max(noise * BASELINE_SPIKE_K, 1)
+            spikes = sum(1 for d in diffs if d > spike_threshold)
+            spike_fraction = spikes / len(diffs)
+
+            stable = (
+                noise_ratio <= BASELINE_MAX_NOISE_RATIO
+                and spike_fraction <= BASELINE_MAX_SPIKE_FRACTION
+            )
+            reasons = []
+            if noise_ratio > BASELINE_MAX_NOISE_RATIO:
+                reasons.append("excessive noise")
+            if spike_fraction > BASELINE_MAX_SPIKE_FRACTION:
+                reasons.append("motion artifacts")
+
+            result[key] = {
+                "stable": stable,
+                "noise_ratio": round(noise_ratio, 4),
+                "spike_fraction": round(spike_fraction, 4),
+                "amplitude": amplitude,
+                "reason": ", ".join(reasons) if reasons else "stable",
+            }
+        return result
 
     def save(self, output_dir: Path) -> dict:
         """Write the recorded rows to an enriched CSV and return file info.
