@@ -21,7 +21,8 @@ if errorlevel 1 (
 
 echo.
 echo === Starting backend (FastAPI / uvicorn) ===
-start "Sensa Backend" cmd /k "cd /d "%~dp0sensa-ui\backend" && python -m uvicorn main:app --reload"
+REM Install/refresh Python deps first (fast no-op once installed), then run.
+start "Sensa Backend" cmd /k "cd /d "%~dp0sensa-ui\backend" && python -m pip install -q -r requirements.txt && python -m uvicorn main:app --reload"
 
 echo.
 echo === Starting frontend (Vite) ===
