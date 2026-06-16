@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { CheckCircle2, Check, AlertCircle } from 'lucide-react';
-import { LineChart, Line, YAxis, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, ResponsiveContainer } from 'recharts';
 import { computeSignalMetrics, toneClasses } from '../../lib/signalMetrics';
 
 // === REPLACE THESE WITH YOUR ACTUAL ASSET NAMES ===
@@ -392,16 +392,22 @@ export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void 
               <div className="h-48 w-full overflow-hidden rounded-lg border border-gray-100 bg-gray-50/50">
                 {chartData.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={chartData}>
-                      <YAxis domain={['auto', 'auto']} hide={true} />
-                      <Line 
-                        type="monotone" 
-                        dataKey="uv" 
-                        stroke="#7C3AED" // Matches your violet UI theme
-                        strokeWidth={2} 
-                        dot={false} 
-                        isAnimationActive={false} // Turn off CSS animation so it renders at 60fps instantly
+                    <LineChart data={chartData} margin={{ top: 4, right: 8, left: 4, bottom: 20 }}>
+                      <XAxis
+                        dataKey="index"
+                        type="number"
+                        domain={[0, 119]}
+                        tickFormatter={(i: number) => `${((i / 120) * 5).toFixed(0)}s`}
+                        tick={{ fontSize: 10, fill: '#9ca3af' }}
+                        label={{ value: 'Time (last 5 s)', position: 'insideBottom', offset: -8, fontSize: 10, fill: '#9ca3af' }}
                       />
+                      <YAxis
+                        domain={['auto', 'auto']}
+                        tick={{ fontSize: 10, fill: '#9ca3af' }}
+                        width={48}
+                        label={{ value: 'EDA (raw)', angle: -90, position: 'insideLeft', offset: 10, fontSize: 10, fill: '#9ca3af' }}
+                      />
+                      <Line type="monotone" dataKey="uv" stroke="#7C3AED" strokeWidth={2} dot={false} isAnimationActive={false} />
                     </LineChart>
                   </ResponsiveContainer>
                 ) : (
@@ -509,8 +515,13 @@ export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void 
               <div className="mb-4 h-24 w-full overflow-hidden rounded-lg border border-gray-100 bg-gray-50/50">
                 {chartData.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={chartData}>
-                      <YAxis domain={['auto', 'auto']} hide />
+                    <LineChart data={chartData} margin={{ top: 2, right: 4, left: 4, bottom: 2 }}>
+                      <YAxis
+                        domain={['auto', 'auto']}
+                        tick={{ fontSize: 9, fill: '#9ca3af' }}
+                        width={42}
+                        label={{ value: 'EDA', angle: -90, position: 'insideLeft', offset: 10, fontSize: 9, fill: '#9ca3af' }}
+                      />
                       <Line type="monotone" dataKey="uv" stroke="#7C3AED" strokeWidth={1.5} dot={false} isAnimationActive={false} />
                     </LineChart>
                   </ResponsiveContainer>

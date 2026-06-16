@@ -57,13 +57,20 @@ SENSOR_CLASS_MAP = {
     # clas_code: "eda" | "ecg" | "eeg"
 }
 
-# Baseline-stability thresholds (used to judge a finished recording). A clean
-# resting baseline is smooth: sample-to-sample noise is small relative to the
-# overall swing, and there are few large motion spikes. Tunable via env.
-# noise_ratio = median(|Δ|) / peak-to-peak;  spike = |Δ| > BASELINE_SPIKE_K * median(|Δ|).
-BASELINE_MAX_NOISE_RATIO = float(os.environ.get("SENSA_BASELINE_MAX_NOISE_RATIO", "0.20"))
-BASELINE_MAX_SPIKE_FRACTION = float(os.environ.get("SENSA_BASELINE_MAX_SPIKE_FRACTION", "0.05"))
-BASELINE_SPIKE_K = float(os.environ.get("SENSA_BASELINE_SPIKE_K", "6"))
+# Baseline-stability thresholds. All operate on 16-bit raw ADC values (0–65535).
+#
+# cv_threshold  — coefficient of variation (std/mean). A resting EDA baseline
+#   should be very flat; CV > 0.015 means the signal is varying ≥ 1.5% of its
+#   own mean per sample — a reliable sign of motion or poor contact.
+#   Override: SENSA_BASELINE_MAX_CV (default 0.015)
+#
+# drift_threshold — absolute drift as a fraction of full scale (65535). If the
+#   mean of the last quarter differs from the first quarter by > 2% of full
+#   scale, the signal is drifting (participant moved/relaxed mid-recording).
+#   Override: SENSA_BASELINE_MAX_DRIFT (default 0.02)
+BASELINE_MAX_CV = float(os.environ.get("SENSA_BASELINE_MAX_CV", "0.015"))
+BASELINE_MAX_DRIFT = float(os.environ.get("SENSA_BASELINE_MAX_DRIFT", "0.02"))
+FULL_SCALE = 65535.0  # 16-bit ADC
 
 # ---------------------------------------------------------------------------
 # plux.pyd location + import
@@ -400,7 +407,18 @@ class PluxManager:
 
     @staticmethod
     def _baseline_quality(rows: list[dict], keys: list[str]) -> dict:
-        """Per-channel baseline stability verdict from the recorded rows."""
+        """Per-channel baseline stability verdict from the recorded rows.
+
+        Uses two absolute metrics on 16-bit ADC values so that uniformly noisy
+        recordings (where every sample is large) are correctly flagged:
+
+        cv   = std(values) / mean(values)  — coefficient of variation.
+               Catches high moment-to-moment variability regardless of amplitude.
+        drift = |mean(last_quarter) - mean(first_quarter)| / FULL_SCALE
+               Catches slow drift across the recording.
+        """
+        import math
+
         result: dict[str, dict] = {}
         for key in keys:
             vals = [r.get(f"{key}_raw") for r in rows]
@@ -409,30 +427,31 @@ class PluxManager:
                 result[key] = {"stable": None, "reason": "too few samples"}
                 continue
 
-            amplitude = max(vals) - min(vals)
-            diffs = sorted(abs(vals[i] - vals[i - 1]) for i in range(1, len(vals)))
-            noise = diffs[len(diffs) // 2]  # median |Δ|
-            noise_ratio = (noise / amplitude) if amplitude > 0 else 0.0
+            n = len(vals)
+            mean = sum(vals) / n
+            if mean == 0:
+                result[key] = {"stable": None, "reason": "zero-mean signal"}
+                continue
 
-            spike_threshold = max(noise * BASELINE_SPIKE_K, 1)
-            spikes = sum(1 for d in diffs if d > spike_threshold)
-            spike_fraction = spikes / len(diffs)
+            variance = sum((v - mean) ** 2 for v in vals) / n
+            std = math.sqrt(variance)
+            cv = std / abs(mean)
 
-            stable = (
-                noise_ratio <= BASELINE_MAX_NOISE_RATIO
-                and spike_fraction <= BASELINE_MAX_SPIKE_FRACTION
-            )
+            q = max(n // 4, 1)
+            drift = abs(
+                sum(vals[-q:]) / q - sum(vals[:q]) / q
+            ) / FULL_SCALE
+
             reasons = []
-            if noise_ratio > BASELINE_MAX_NOISE_RATIO:
+            if cv > BASELINE_MAX_CV:
                 reasons.append("excessive noise")
-            if spike_fraction > BASELINE_MAX_SPIKE_FRACTION:
-                reasons.append("motion artifacts")
+            if drift > BASELINE_MAX_DRIFT:
+                reasons.append("signal drift")
 
             result[key] = {
-                "stable": stable,
-                "noise_ratio": round(noise_ratio, 4),
-                "spike_fraction": round(spike_fraction, 4),
-                "amplitude": amplitude,
+                "stable": len(reasons) == 0,
+                "cv": round(cv, 5),
+                "drift": round(drift, 5),
                 "reason": ", ".join(reasons) if reasons else "stable",
             }
         return result

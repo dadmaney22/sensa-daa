@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { CheckCircle2, AlertCircle, Check } from 'lucide-react';
-import { LineChart, Line, YAxis, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, ResponsiveContainer } from 'recharts';
 import { computeSignalMetrics, toneClasses } from '../../lib/signalMetrics';
 
 import headFrontImg from '../../assets/BwFront.png';
@@ -360,8 +360,21 @@ export default function EEGCalibrationFlow({ onFinish }: { onFinish: () => void 
               <div className="h-48 w-full overflow-hidden rounded-lg border border-gray-100 bg-gray-50/50">
                 {chartData.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={chartData}>
-                      <YAxis domain={['auto', 'auto']} hide={true} />
+                    <LineChart data={chartData} margin={{ top: 4, right: 8, left: 4, bottom: 20 }}>
+                      <XAxis
+                        dataKey="index"
+                        type="number"
+                        domain={[0, 59]}
+                        tickFormatter={(i: number) => `${((i / 60) * 2.4).toFixed(0)}s`}
+                        tick={{ fontSize: 10, fill: '#9ca3af' }}
+                        label={{ value: 'Time (last ~2.4 s)', position: 'insideBottom', offset: -8, fontSize: 10, fill: '#9ca3af' }}
+                      />
+                      <YAxis
+                        domain={['auto', 'auto']}
+                        tick={{ fontSize: 10, fill: '#9ca3af' }}
+                        width={48}
+                        label={{ value: 'EEG (raw)', angle: -90, position: 'insideLeft', offset: 10, fontSize: 10, fill: '#9ca3af' }}
+                      />
                       <Line
                         type="monotone"
                         dataKey="uv"
@@ -448,8 +461,13 @@ export default function EEGCalibrationFlow({ onFinish }: { onFinish: () => void 
               <div className="mb-4 h-24 w-full overflow-hidden rounded-lg border border-gray-100 bg-gray-50/50">
                 {chartData.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={chartData}>
-                      <YAxis domain={['auto', 'auto']} hide />
+                    <LineChart data={chartData} margin={{ top: 2, right: 4, left: 4, bottom: 2 }}>
+                      <YAxis
+                        domain={['auto', 'auto']}
+                        tick={{ fontSize: 9, fill: '#9ca3af' }}
+                        width={42}
+                        label={{ value: 'EEG', angle: -90, position: 'insideLeft', offset: 10, fontSize: 9, fill: '#9ca3af' }}
+                      />
                       <Line type="monotone" dataKey="uv" stroke="#7C3AED" strokeWidth={1.5} dot={false} isAnimationActive={false} />
                     </LineChart>
                   </ResponsiveContainer>
