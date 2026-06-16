@@ -13,6 +13,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
 
+from services import plux_stream
 from services.plux_stream import plux_manager
 
 logger = logging.getLogger(__name__)
@@ -26,6 +27,28 @@ async def plux_status():
     """Report whether the PLUX API loaded, which device was found, and the
     detected channel map. Useful for debugging hardware setup."""
     return plux_manager.status()
+
+
+@router.get("/api/plux/scan")
+async def plux_scan():
+    """Run a Bluetooth scan and report every PLUX device found, without
+    connecting. Lets you confirm the hub is visible (and its address) in
+    isolation from streaming. Ensure OpenSignals is closed first."""
+    if not plux_stream.plux_available:
+        return {"plux_available": False, "devices": [], "error": plux_stream._plux_import_error}
+
+    def _scan():
+        try:
+            found = plux_stream.plux.BaseDev.findDevices()
+            return [
+                (entry[0] if isinstance(entry, (tuple, list)) else str(entry))
+                for entry in (found or [])
+            ], None
+        except Exception as exc:  # noqa: BLE001
+            return [], str(exc)
+
+    devices, error = await asyncio.to_thread(_scan)
+    return {"plux_available": True, "devices": devices, "error": error}
 
 
 @router.websocket("/ws/stream")
