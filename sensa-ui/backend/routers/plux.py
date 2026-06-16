@@ -34,18 +34,27 @@ async def stream_ws(websocket: WebSocket):
     whichever of `eda_raw` / `ecg_raw` / `eeg_raw` are present."""
     await websocket.accept()
 
+    # Let the client know we're alive before the (potentially slow) Bluetooth
+    # scan/connect runs, so the UI never sits blank with no feedback.
+    try:
+        await websocket.send_json({"status": "connecting"})
+    except Exception:
+        return
+
     try:
         await asyncio.to_thread(plux_manager.start)
     except Exception as exc:
         logger.warning("Could not start PLUX acquisition: %s", exc)
         try:
-            await websocket.send_json({"error": str(exc)})
+            await websocket.send_json({"status": "error", "error": str(exc)})
+            await asyncio.sleep(0.2)  # give the client a moment to read it
         except Exception:
             pass
         await websocket.close()
         return
 
     try:
+        await websocket.send_json({"status": "streaming"})
         while True:
             sample = plux_manager.latest()
             if sample is not None:

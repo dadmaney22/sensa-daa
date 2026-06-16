@@ -162,7 +162,10 @@ def _build_acquisition_class():
         the owning manager."""
 
         def __init__(self, address):
-            plux.SignalsDev.__init__(address)
+            # PLUX's Boost.Python binding requires calling the *base* MemoryDev
+            # constructor with just the address (no self) — this is the exact
+            # incantation from PLUX's own OneDeviceAcquisitionExample.
+            plux.MemoryDev.__init__(address)
             self.manager: Optional["PluxManager"] = None
 
         def onRawFrame(self, nSeq, data):  # noqa: N802 (PLUX API name)

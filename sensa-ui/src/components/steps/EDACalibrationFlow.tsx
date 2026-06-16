@@ -21,45 +21,77 @@ export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void 
   // Step 3 State
   const [signalStatus, setSignalStatus] = useState<'unknown' | 'checking' | 'good'>('unknown');
 
+  // Live-stream diagnostics
+  const [wsState, setWsState] = useState<'idle' | 'connecting' | 'streaming' | 'error' | 'closed'>('idle');
+  const [wsError, setWsError] = useState<string | null>(null);
+  const [msgCount, setMsgCount] = useState(0);
+  const [lastRaw, setLastRaw] = useState<number | null>(null);
+  // Bumping this re-runs the WebSocket effect (used by "Run Signal Check").
+  const [wsAttempt, setWsAttempt] = useState(0);
+  const [pluxStatus, setPluxStatus] = useState<
+    { plux_available: boolean; device_address: string | null; channel_map: Record<string, number>; import_error?: string | null } | null
+  >(null);
+
   // Step 4 State
   const toggleCheck = (id: string, _current: string[], setter: React.Dispatch<React.SetStateAction<string[]>>) => {
     setter(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   };
 
   const [recordingState, setRecordingState] = useState<'idle' | 'recording' | 'done'>('idle');
- // Step 4 State
-  
-  // NEW: Keep a rolling buffer of the last 60 data points for the chart
+
+  // Rolling buffer of the last ~120 live samples for the chart
   const [chartData, setChartData] = useState<{ uv: number }[]>([]);
 
   // ==========================================
-  // 1. LIVE WEBSOCKET CONNECTION
+  // 1. LIVE WEBSOCKET CONNECTION (reconnectable)
   // ==========================================
   useEffect(() => {
-    // Only connect the socket when we reach the Signal Check step
-    if (step >= 3) {
-      const ws = new WebSocket('ws://localhost:8000/ws/stream');
-      
-      ws.onopen = () => console.log('Connected to PLUX WebSocket');
-      
-      ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        
-        // Feed the new point into the chart array
-        setChartData(prev => {
-          const newData = [...prev, { uv: data.eda_raw }];
-          if (newData.length > 60) newData.shift(); // Keep it to 60 points max
-          return newData;
-        });
-        
-        setSignalStatus((prev) => (prev === 'checking' ? 'good' : prev));
-      };    
-        // If data is flowing, automatically upgrade signal status to 'good'
-    
+    if (step < 3) return;
 
-      return () => ws.close(); // Cleanup socket if user unmounts/goes back
-    }
-  }, [step]);
+    setWsState('connecting');
+    setWsError(null);
+    const ws = new WebSocket('ws://localhost:8000/ws/stream');
+
+    ws.onmessage = (event) => {
+      let data: any;
+      try { data = JSON.parse(event.data); } catch { return; }
+
+      // Status / error frames from the backend.
+      if (data.error || data.status === 'error') {
+        setWsError(data.error || 'Stream error');
+        setWsState('error');
+        return;
+      }
+      if (data.status === 'streaming') { setWsState('streaming'); return; }
+      if (data.status) return; // e.g. "connecting"
+
+      // Data frame — ignore until a real EDA value is present.
+      if (data.eda_raw === undefined || data.eda_raw === null) return;
+      setWsState('streaming');
+      setLastRaw(data.eda_raw);
+      setMsgCount(c => c + 1);
+      setChartData(prev => {
+        const next = [...prev, { uv: data.eda_raw }];
+        if (next.length > 120) next.shift();
+        return next;
+      });
+      setSignalStatus(prev => (prev === 'checking' ? 'good' : prev));
+    };
+
+    ws.onerror = () => setWsState('error');
+    ws.onclose = () => setWsState(s => (s === 'error' ? s : 'closed'));
+
+    return () => ws.close();
+  }, [step, wsAttempt]);
+
+  // Fetch hardware status (device + channel map) for the debug readout.
+  useEffect(() => {
+    if (step < 3) return;
+    fetch('http://localhost:8000/api/plux/status')
+      .then(r => r.json())
+      .then(setPluxStatus)
+      .catch(() => setPluxStatus(null));
+  }, [step, wsAttempt]);
 
   // ==========================================
   // 2. REAL HARDWARE RECORDING LOGIC
@@ -277,8 +309,25 @@ export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void 
                   </div>
                 )}
               </div>
+
+              {/* Live-stream debug readout */}
+              <div className="mt-2 space-y-0.5 text-center text-[11px] text-gray-400">
+                <div>
+                  stream: <span className={wsState === 'streaming' ? 'text-green-500' : wsState === 'error' ? 'text-red-500' : 'text-gray-500'}>{wsState}</span>
+                  {' · '}msgs: {msgCount}
+                  {lastRaw !== null && <> · last EDA: {lastRaw}</>}
+                </div>
+                {pluxStatus && (
+                  <div>
+                    device: {pluxStatus.device_address || (pluxStatus.plux_available ? 'not found' : 'plux.pyd not loaded')}
+                    {pluxStatus.channel_map?.eda !== undefined && <> · EDA ch {pluxStatus.channel_map.eda}</>}
+                  </div>
+                )}
+                {wsError && <div className="text-red-500">{wsError}</div>}
+                {pluxStatus?.import_error && <div className="text-red-500">plux import: {pluxStatus.import_error}</div>}
+              </div>
             </div>
-            
+
             <div className="space-y-6">
               <div className="rounded-lg border border-gray-200 bg-white">
                 <h4 className="border-b border-gray-200 bg-gray-100 px-4 py-2 text-xs font-bold uppercase text-gray-700 flex items-center gap-2">
@@ -310,10 +359,14 @@ export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void 
                 <div className="border-t border-gray-100 p-3 text-center">
                   <button 
                     onClick={() => {
+                      // Reconnect the stream and clear the chart. onmessage flips
+                      // status to 'good' the moment real hardware data arrives.
+                      setChartData([]);
+                      setMsgCount(0);
+                      setLastRaw(null);
+                      setWsError(null);
                       setSignalStatus('checking');
-                      // Note: We removed the setTimeout here because the WebSocket 
-                      // onmessage function above will now automatically set it to 'good' 
-                      // the millisecond it receives actual hardware data!
+                      setWsAttempt(a => a + 1);
                     }}
                     className="text-sm font-medium text-violet-600 hover:text-violet-800"
                   >
