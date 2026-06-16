@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import { CheckCircle2, Check, AlertCircle } from 'lucide-react';
+import { LineChart, Line, YAxis, ResponsiveContainer } from 'recharts';
 
 // === REPLACE THESE WITH YOUR ACTUAL ASSET NAMES ===
 import ecgPlacementSvg from '../../assets/ecg.svg'; 
 import ecgDevicePng from '../../assets/eegHub.png';
-import ecgWaveformPng from '../../assets/ecgwave.png';
 
 export default function ECGCalibrationFlow({ onFinish }: { onFinish: () => void }) {
   const [step, setStep] = useState(1);
@@ -23,17 +23,47 @@ export default function ECGCalibrationFlow({ onFinish }: { onFinish: () => void 
   // Step 4 State
   const [recordingState, setRecordingState] = useState<'idle' | 'recording' | 'done'>('idle');
 
+  // Rolling buffer of the last 60 live samples for the waveform preview
+  const [chartData, setChartData] = useState<{ uv: number }[]>([]);
+
   const toggleCheck = (id: string, _current: string[], setter: React.Dispatch<React.SetStateAction<string[]>>) => {
     setter(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   };
 
-  // Simulate Baseline Recording Timer (30 seconds)
+  // Live WebSocket to the biosignalsplux hub (shared stream). Connects once we
+  // reach the Signal Check step; reads this flow's ecg_raw channel.
   useEffect(() => {
-    if (recordingState === 'recording') {
-      const timer = setTimeout(() => setRecordingState('done'), 30000); // 30 seconds
-      return () => clearTimeout(timer);
+    if (step >= 3) {
+      const ws = new WebSocket('ws://localhost:8000/ws/stream');
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.ecg_raw === undefined || data.ecg_raw === null) return;
+        setChartData(prev => {
+          const newData = [...prev, { uv: data.ecg_raw }];
+          if (newData.length > 60) newData.shift();
+          return newData;
+        });
+        setSignalStatus((prev) => (prev === 'checking' ? 'good' : prev));
+      };
+      return () => ws.close();
     }
-  }, [recordingState]);
+  }, [step]);
+
+  // Real 30s baseline recording driven by the backend PLUX recorder.
+  const startRealRecording = async () => {
+    setRecordingState('recording');
+    try {
+      await fetch('http://localhost:8000/api/record/start', { method: 'POST' });
+      setTimeout(async () => {
+        await fetch('http://localhost:8000/api/record/stop', { method: 'POST' });
+        await fetch('http://localhost:8000/api/record/save', { method: 'POST' });
+        setRecordingState('done');
+      }, 30000);
+    } catch (error) {
+      console.error('Failed to trigger backend recording:', error);
+      setRecordingState('idle');
+    }
+  };
 
   return (
     <div className="animate-in fade-in slide-in-from-right-4 duration-300">
@@ -208,8 +238,24 @@ export default function ECGCalibrationFlow({ onFinish }: { onFinish: () => void 
           <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
             <div>
               <p className="mb-4 text-center text-sm font-semibold text-gray-700">Live ECG waveform preview:</p>
-              <div className="flex h-48 w-full items-center justify-center overflow-hidden rounded-lg">
-                <img src={ecgWaveformPng} alt="ECG Waveform" className={`w-full h-full object-contain ${signalStatus === 'checking' ? 'opacity-50 animate-pulse' : 'opacity-100'}`} />
+              <div className="flex h-48 w-full items-center justify-center overflow-hidden rounded-lg border border-gray-100 bg-gray-50/50 p-4">
+                {chartData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={chartData}>
+                      <YAxis domain={['auto', 'auto']} hide={true} />
+                      <Line
+                        type="monotone"
+                        dataKey="uv"
+                        stroke="#7C3AED"
+                        strokeWidth={2}
+                        dot={false}
+                        isAnimationActive={false}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <span className="text-xs text-gray-400">Awaiting sensor data...</span>
+                )}
               </div>
             </div>
             
@@ -244,8 +290,9 @@ export default function ECGCalibrationFlow({ onFinish }: { onFinish: () => void 
                 <div className="border-t border-gray-100 p-3 text-center">
                   <button 
                     onClick={() => {
+                      // The WebSocket onmessage flips status to 'good' as soon
+                      // as real hardware frames arrive.
                       setSignalStatus('checking');
-                      setTimeout(() => setSignalStatus('good'), 1500);
                     }}
                     className="text-sm font-medium text-violet-600 hover:text-violet-800"
                   >
@@ -293,7 +340,7 @@ export default function ECGCalibrationFlow({ onFinish }: { onFinish: () => void 
               }`}></div>
 
               <button 
-                onClick={() => setRecordingState('recording')}
+                onClick={startRealRecording}
                 disabled={recordingState === 'recording'}
                 className="rounded-lg bg-violet-600 px-8 py-2.5 text-sm font-medium text-white transition-all hover:bg-violet-700 disabled:opacity-50"
               >
