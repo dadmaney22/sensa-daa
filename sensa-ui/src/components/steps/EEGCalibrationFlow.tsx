@@ -81,7 +81,7 @@ export default function EEGCalibrationFlow({ onFinish }: { onFinish: () => void 
                   </span>
                 </div>
                 {i < 4 && (
-                  <div className={`h-[2px] w-12 mt-3 ${step > i ? 'bg-violet-600' : 'bg-gray-200'}`} />
+                  <div className={`h-[2px] w-12 mb-6 ${step > i ? 'bg-violet-600' : 'bg-gray-200'}`} />
                 )}
               </div>
             ))}
