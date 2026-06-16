@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { CheckCircle2, AlertCircle, Check } from 'lucide-react';
 import { LineChart, Line, YAxis, ResponsiveContainer } from 'recharts';
+import { computeSignalMetrics, toneClasses } from '../../lib/signalMetrics';
 
 import headFrontImg from '../../assets/BwFront.png';
 import headSideImg from '../../assets/BwSideview.png';
@@ -25,6 +26,11 @@ export default function EEGCalibrationFlow({ onFinish }: { onFinish: () => void 
 
   // Rolling buffer of the last 60 live samples for the waveform preview
   const [chartData, setChartData] = useState<{ uv: number }[]>([]);
+
+  // Live signal-quality metrics derived from the rolling buffer.
+  const metrics = useMemo(() => computeSignalMetrics(chartData.map(d => d.uv)), [chartData]);
+  const ampTone = toneClasses(metrics?.amplitudeQuality.tone ?? 'idle');
+  const noiseTone = toneClasses(metrics?.noiseQuality.tone ?? 'idle');
 
   // Helper to toggle checkboxes
   const toggleCheck = (id: string, _current: string[], setter: React.Dispatch<React.SetStateAction<string[]>>) => {
@@ -270,15 +276,15 @@ export default function EEGCalibrationFlow({ onFinish }: { onFinish: () => void 
                     <span className="font-medium text-green-600">Connected</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-600">• Signal amplitude</span>
-                    <span className={`font-medium ${signalStatus === 'good' ? 'text-green-600' : 'text-yellow-600'}`}>
-                      {signalStatus === 'good' ? 'Normal' : signalStatus === 'checking' ? 'Checking...' : 'Medium'}
+                    <span className="text-gray-600 flex items-center gap-2"><div className={`h-1.5 w-1.5 rounded-full ${ampTone.dot}`}></div> Signal amplitude</span>
+                    <span className={`font-medium ${ampTone.text}`}>
+                      {metrics ? metrics.amplitudeQuality.label : 'Checking...'}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-600">• Noise level</span>
-                    <span className={`font-medium ${signalStatus === 'good' ? 'text-green-600' : 'text-red-600'}`}>
-                      {signalStatus === 'good' ? 'Low' : signalStatus === 'checking' ? 'Checking...' : 'High'}
+                    <span className="text-gray-600 flex items-center gap-2"><div className={`h-1.5 w-1.5 rounded-full ${noiseTone.dot}`}></div> Noise level</span>
+                    <span className={`font-medium ${noiseTone.text}`}>
+                      {metrics ? metrics.noiseQuality.label : 'Checking...'}
                     </span>
                   </div>
                 </div>
@@ -349,12 +355,12 @@ export default function EEGCalibrationFlow({ onFinish }: { onFinish: () => void 
                     <span className="font-medium text-green-600">Connected</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-600">• Signal amplitude</span>
-                    <span className="font-medium text-green-600">Normal</span>
+                    <span className="text-gray-600 flex items-center gap-2"><div className={`h-1.5 w-1.5 rounded-full ${ampTone.dot}`}></div> Signal amplitude</span>
+                    <span className={`font-medium ${ampTone.text}`}>{metrics ? metrics.amplitudeQuality.label : 'Checking...'}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-600">• Noise level</span>
-                    <span className="font-medium text-green-600">Low</span>
+                    <span className="text-gray-600 flex items-center gap-2"><div className={`h-1.5 w-1.5 rounded-full ${noiseTone.dot}`}></div> Noise level</span>
+                    <span className={`font-medium ${noiseTone.text}`}>{metrics ? metrics.noiseQuality.label : 'Checking...'}</span>
                   </div>
                   <div className="flex justify-between pt-2 border-t border-gray-100">
                     <span className="text-gray-600 text-xs uppercase font-bold">Baseline</span>

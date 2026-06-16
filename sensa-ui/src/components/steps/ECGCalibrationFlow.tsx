@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { CheckCircle2, Check, AlertCircle } from 'lucide-react';
 import { LineChart, Line, YAxis, ResponsiveContainer } from 'recharts';
+import { computeSignalMetrics, toneClasses } from '../../lib/signalMetrics';
 
 // === REPLACE THESE WITH YOUR ACTUAL ASSET NAMES ===
 import ecgPlacementSvg from '../../assets/ecg.svg'; 
@@ -25,6 +26,11 @@ export default function ECGCalibrationFlow({ onFinish }: { onFinish: () => void 
 
   // Rolling buffer of the last 60 live samples for the waveform preview
   const [chartData, setChartData] = useState<{ uv: number }[]>([]);
+
+  // Live signal-quality metrics derived from the rolling buffer.
+  const metrics = useMemo(() => computeSignalMetrics(chartData.map(d => d.uv)), [chartData]);
+  const ampTone = toneClasses(metrics?.amplitudeQuality.tone ?? 'idle');
+  const noiseTone = toneClasses(metrics?.noiseQuality.tone ?? 'idle');
 
   const toggleCheck = (id: string, _current: string[], setter: React.Dispatch<React.SetStateAction<string[]>>) => {
     setter(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
@@ -274,18 +280,18 @@ export default function ECGCalibrationFlow({ onFinish }: { onFinish: () => void 
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-600 flex items-center gap-2">
-                      <div className={`h-1.5 w-1.5 rounded-full ${signalStatus === 'good' ? 'bg-green-500' : 'bg-yellow-500'}`}></div> Signal amplitude
+                      <div className={`h-1.5 w-1.5 rounded-full ${ampTone.dot}`}></div> Signal amplitude
                     </span>
-                    <span className={`font-medium ${signalStatus === 'good' ? 'text-green-600' : 'text-yellow-600'}`}>
-                      {signalStatus === 'good' ? 'Normal' : signalStatus === 'checking' ? 'Checking...' : 'Medium'}
+                    <span className={`font-medium ${ampTone.text}`}>
+                      {metrics ? metrics.amplitudeQuality.label : 'Checking...'}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-600 flex items-center gap-2">
-                      <div className={`h-1.5 w-1.5 rounded-full ${signalStatus === 'good' ? 'bg-green-500' : 'bg-red-500'}`}></div> Noise level
+                      <div className={`h-1.5 w-1.5 rounded-full ${noiseTone.dot}`}></div> Noise level
                     </span>
-                    <span className={`font-medium ${signalStatus === 'good' ? 'text-green-600' : 'text-red-600'}`}>
-                      {signalStatus === 'good' ? 'Low' : signalStatus === 'checking' ? 'Checking...' : 'High'}
+                    <span className={`font-medium ${noiseTone.text}`}>
+                      {metrics ? metrics.noiseQuality.label : 'Checking...'}
                     </span>
                   </div>
                 </div>
@@ -369,12 +375,12 @@ export default function ECGCalibrationFlow({ onFinish }: { onFinish: () => void 
                     <span className="font-medium text-green-600">Connected</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-600 flex items-center gap-2"><div className="h-1.5 w-1.5 rounded-full bg-green-500"></div> Signal amplitude</span>
-                    <span className="font-medium text-green-600">Normal</span>
+                    <span className="text-gray-600 flex items-center gap-2"><div className={`h-1.5 w-1.5 rounded-full ${ampTone.dot}`}></div> Signal amplitude</span>
+                    <span className={`font-medium ${ampTone.text}`}>{metrics ? metrics.amplitudeQuality.label : 'Checking...'}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-600 flex items-center gap-2"><div className="h-1.5 w-1.5 rounded-full bg-green-500"></div> Noise level</span>
-                    <span className="font-medium text-green-600">Low</span>
+                    <span className="text-gray-600 flex items-center gap-2"><div className={`h-1.5 w-1.5 rounded-full ${noiseTone.dot}`}></div> Noise level</span>
+                    <span className={`font-medium ${noiseTone.text}`}>{metrics ? metrics.noiseQuality.label : 'Checking...'}</span>
                   </div>
                   <div className="flex justify-between pt-2 border-t border-gray-100 mt-2">
                     <span className="text-gray-600 flex items-center gap-2"><div className="h-1.5 w-1.5 rounded-full bg-gray-400"></div> Baseline</span>
