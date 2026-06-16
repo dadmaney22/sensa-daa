@@ -22,7 +22,9 @@ import os
 import sys
 import threading
 import time
+import json
 from collections import deque
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -200,6 +202,7 @@ class PluxManager:
 
         self._recording = False
         self._recorded_rows: list[dict] = []
+        self._last_save_path: Optional[str] = None
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -363,7 +366,13 @@ class PluxManager:
         return count
 
     def save(self, output_dir: Path) -> dict:
-        """Write the recorded rows to a CSV and return file info."""
+        """Write the recorded rows to an enriched CSV and return file info.
+
+        Format:
+          # metadata comment lines (device, sample rate, channel map, start time)
+          seq,datetime_iso,elapsed_s,<SENSOR>_raw,...
+          0,2026-06-16T12:01:00.123,0.000,32100,...
+        """
         output_dir.mkdir(parents=True, exist_ok=True)
         ts = time.strftime("%Y%m%d_%H%M%S")
         filepath = output_dir / f"plux_recording_{ts}.csv"
@@ -371,19 +380,44 @@ class PluxManager:
         with self._lock:
             rows = list(self._recorded_rows)
             keys = list(self._channel_map.keys())
+            device_address = self._device_address or "unknown"
+            channel_map = dict(self._channel_map)
 
-        header = ["seq", "timestamp"] + [f"{k.upper()}_raw" for k in keys]
-        lines = [",".join(header)]
+        t0 = rows[0]["timestamp"] if rows else 0.0
+        recording_start_iso = datetime.fromtimestamp(t0).isoformat() if rows else ""
+
+        # Metadata header lines (prefixed with # so pandas/Excel skips them easily)
+        meta = [
+            f"# device_address,{device_address}",
+            f"# sample_rate_hz,{SAMPLING_RATE}",
+            f"# channel_map,{json.dumps(channel_map)}",
+            f"# recording_start,{recording_start_iso}",
+        ]
+
+        col_names = ["seq", "datetime_iso", "elapsed_s"] + [f"{k.upper()}_raw" for k in keys]
+        data_lines = [",".join(col_names)]
         for r in rows:
-            cells = [str(r.get("seq", "")), str(r.get("timestamp", ""))]
+            t = r.get("timestamp", t0)
+            cells = [
+                str(r.get("seq", "")),
+                datetime.fromtimestamp(t).isoformat(),
+                f"{t - t0:.4f}",
+            ]
             for k in keys:
                 v = r.get(f"{k}_raw")
                 cells.append("" if v is None else str(v))
-            lines.append(",".join(cells))
+            data_lines.append(",".join(cells))
 
-        filepath.write_text("\n".join(lines), encoding="utf-8")
+        filepath.write_text("\n".join(meta + data_lines), encoding="utf-8")
         logger.info("PLUX recording saved: %s (%d rows)", filepath, len(rows))
+        self._last_save_path = str(filepath)
         return {"filename": filepath.name, "filepath": str(filepath), "rows": len(rows)}
+
+    # -- last save ---------------------------------------------------------
+
+    @property
+    def last_save_path(self) -> Optional[str]:
+        return self._last_save_path
 
     # -- status ------------------------------------------------------------
 

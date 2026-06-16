@@ -12,6 +12,7 @@ import logging
 from pathlib import Path
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi.responses import FileResponse
 
 from services import plux_stream
 from services.plux_stream import plux_manager
@@ -109,3 +110,16 @@ async def record_stop():
 async def record_save():
     info = plux_manager.save(DATA_DIR)
     return {"status": "saved", **info}
+
+
+@router.get("/api/record/download")
+async def record_download():
+    """Return the most recently saved recording CSV as a file download."""
+    path = plux_manager.last_save_path
+    if not path or not Path(path).exists():
+        raise HTTPException(status_code=404, detail="No recording saved yet — call /api/record/save first.")
+    return FileResponse(
+        path,
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={Path(path).name}"},
+    )

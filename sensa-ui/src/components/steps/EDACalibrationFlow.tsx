@@ -39,6 +39,7 @@ export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void 
   };
 
   const [recordingState, setRecordingState] = useState<'idle' | 'recording' | 'done'>('idle');
+  const [saveData, setSaveData] = useState<{ filename: string; rows: number } | null>(null);
 
   // Rolling buffer of the last ~120 live samples for the chart
   const [chartData, setChartData] = useState<{ uv: number }[]>([]);
@@ -104,26 +105,34 @@ export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void 
   // ==========================================
   const startRealRecording = async () => {
     setRecordingState('recording');
-    
+    setSaveData(null);
     try {
-      // Tell Python to start saving data to memory
       await fetch('http://localhost:8000/api/record/start', { method: 'POST' });
-      
-      // Wait 30 seconds
       setTimeout(async () => {
-        // Tell Python to stop and export the CSV
         await fetch('http://localhost:8000/api/record/stop', { method: 'POST' });
-        const saveRes = await fetch('http://localhost:8000/api/record/save', { method: 'POST' });
-        const saveData = await saveRes.json();
-        
-        console.log('Recording Saved!', saveData);
+        const res = await fetch('http://localhost:8000/api/record/save', { method: 'POST' });
+        const info = await res.json();
+        setSaveData({ filename: info.filename, rows: info.rows });
         setRecordingState('done');
       }, 30000);
-      
     } catch (error) {
       console.error('Failed to trigger backend recording:', error);
-      setRecordingState('idle'); // Reset if server is down
+      setRecordingState('idle');
     }
+  };
+
+  const handleExport = async () => {
+    // Re-save (idempotent) then stream the file to the browser.
+    await fetch('http://localhost:8000/api/record/save', { method: 'POST' });
+    const res = await fetch('http://localhost:8000/api/record/download');
+    if (!res.ok) return;
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = saveData?.filename ?? 'plux_recording.csv';
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -365,8 +374,6 @@ export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void 
                 <div className="border-t border-gray-100 p-3 text-center">
                   <button 
                     onClick={() => {
-                      // Reconnect the stream and clear the chart. onmessage flips
-                      // status to 'good' the moment real hardware data arrives.
                       setChartData([]);
                       setMsgCount(0);
                       setLastRaw(null);
@@ -376,7 +383,7 @@ export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void 
                     }}
                     className="text-sm font-medium text-violet-600 hover:text-violet-800"
                   >
-                    Run Signal Check
+                    Rerun Signal Check
                   </button>
                 </div>
               </div>
@@ -393,8 +400,8 @@ export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void 
                  </ul>
               </div>
 
-             <button 
-                disabled={signalStatus !== 'good'}
+             <button
+                disabled={wsState !== 'streaming'}
                 onClick={() => setStep(4)}
                 className="w-full rounded-lg bg-violet-600 py-3 text-sm font-medium text-white transition-all hover:bg-violet-700 disabled:bg-violet-200 disabled:cursor-not-allowed"
               >
@@ -407,31 +414,50 @@ export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void 
         {/* ==================== STEP 4 ==================== */}
         {step === 4 && (
           <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
-            <div className="flex flex-col items-center justify-center text-center">
-              <p className="mb-8 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
+            <div className="flex flex-col items-center text-center">
+              <p className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
                 To confirm signal quality, a short resting baseline will be recorded. Ensure the participant is seated and relaxed.
               </p>
-              <p className="mb-6 text-sm font-medium text-gray-900 px-4">
-                Press the record button, then focus on the circle and remain still for 30 seconds.
+
+              {/* Live waveform during recording */}
+              <div className="mb-4 h-24 w-full overflow-hidden rounded-lg border border-gray-100 bg-gray-50/50">
+                {chartData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={chartData}>
+                      <YAxis domain={['auto', 'auto']} hide />
+                      <Line type="monotone" dataKey="uv" stroke="#7C3AED" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex h-full items-center justify-center">
+                    <span className="text-xs text-gray-400">Awaiting signal...</span>
+                  </div>
+                )}
+              </div>
+
+              <p className="mb-4 text-sm font-medium text-gray-900 px-4">
+                Press record, then focus on the circle and remain still for 30 seconds.
               </p>
-              
-              <div className={`mb-8 h-40 w-40 rounded-full border-4 border-dashed transition-colors duration-500 ${
+
+              <div className={`mb-6 h-40 w-40 rounded-full border-4 border-dashed transition-colors duration-500 ${
                 recordingState === 'recording' ? 'border-violet-600 bg-violet-100 animate-pulse' : 'border-slate-800 bg-slate-600'
               }`}></div>
 
-              <button 
-                onClick={startRealRecording} // <--- UPDATED THIS LINE
+              <button
+                onClick={startRealRecording}
                 disabled={recordingState === 'recording'}
                 className="rounded-lg bg-violet-600 px-8 py-2.5 text-sm font-medium text-white transition-all hover:bg-violet-700 disabled:opacity-50"
               >
                 {recordingState === 'idle' ? 'Start Recording' : recordingState === 'recording' ? '• Recording...' : 'Record Again'}
               </button>
 
-              {/* DEV SKIP BUTTON */}
               {recordingState === 'recording' && (
                 <button onClick={() => setRecordingState('done')} className="mt-4 text-xs text-gray-400 underline">
                   [Dev: Skip 30s Timer]
                 </button>
+              )}
+              {saveData && (
+                <p className="mt-3 text-xs text-gray-400">{saveData.filename} · {saveData.rows} samples</p>
               )}
             </div>
             
@@ -475,10 +501,15 @@ export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void 
                  </ul>
               </div>
 
-              {/* FINISH BUTTON */}
               {recordingState === 'done' && (
-                <div className="flex justify-end pt-4 animate-in fade-in zoom-in-95 duration-300">
-                  <button 
+                <div className="flex gap-3 justify-end pt-4 animate-in fade-in zoom-in-95 duration-300">
+                  <button
+                    onClick={handleExport}
+                    className="rounded-lg border border-gray-300 px-6 py-3 text-sm font-medium text-gray-700 transition-all hover:bg-gray-50"
+                  >
+                    Export Baseline Recording
+                  </button>
+                  <button
                     onClick={onFinish}
                     className="rounded-lg bg-black px-8 py-3 text-sm font-medium text-white transition-all hover:bg-gray-800"
                   >

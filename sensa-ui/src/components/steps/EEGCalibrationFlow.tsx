@@ -20,9 +20,11 @@ export default function EEGCalibrationFlow({ onFinish }: { onFinish: () => void 
 
   // Step 3 State
   const [signalStatus, setSignalStatus] = useState<'unknown' | 'checking' | 'good'>('unknown');
+  const [wsState, setWsState] = useState<'idle' | 'connecting' | 'streaming' | 'error' | 'closed'>('idle');
 
   // Step 4 State
   const [recordingState, setRecordingState] = useState<'idle' | 'recording' | 'done'>('idle');
+  const [saveData, setSaveData] = useState<{ filename: string; rows: number } | null>(null);
 
   // Rolling buffer of the last 60 live samples for the waveform preview
   const [chartData, setChartData] = useState<{ uv: number }[]>([]);
@@ -40,30 +42,39 @@ export default function EEGCalibrationFlow({ onFinish }: { onFinish: () => void 
   // Live WebSocket to the biosignalsplux hub (shared stream). Connects once we
   // reach the Signal Check step; reads this flow's eeg_raw channel.
   useEffect(() => {
-    if (step >= 3) {
-      const ws = new WebSocket('ws://localhost:8000/ws/stream');
-      ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        if (data.eeg_raw === undefined || data.eeg_raw === null) return;
-        setChartData(prev => {
-          const newData = [...prev, { uv: data.eeg_raw }];
-          if (newData.length > 60) newData.shift();
-          return newData;
-        });
-        setSignalStatus((prev) => (prev === 'checking' ? 'good' : prev));
-      };
-      return () => ws.close();
-    }
+    if (step < 3) return;
+    setWsState('connecting');
+    const ws = new WebSocket('ws://localhost:8000/ws/stream');
+    ws.onmessage = (event) => {
+      let data: any;
+      try { data = JSON.parse(event.data); } catch { return; }
+      if (data.status === 'streaming') { setWsState('streaming'); return; }
+      if (data.status) return;
+      if (data.eeg_raw === undefined || data.eeg_raw === null) return;
+      setWsState('streaming');
+      setChartData(prev => {
+        const newData = [...prev, { uv: data.eeg_raw }];
+        if (newData.length > 60) newData.shift();
+        return newData;
+      });
+      setSignalStatus((prev) => (prev === 'checking' ? 'good' : prev));
+    };
+    ws.onerror = () => setWsState('error');
+    ws.onclose = () => setWsState(s => s === 'error' ? s : 'closed');
+    return () => ws.close();
   }, [step]);
 
   // Real 20s baseline recording driven by the backend PLUX recorder.
   const startRealRecording = async () => {
     setRecordingState('recording');
+    setSaveData(null);
     try {
       await fetch('http://localhost:8000/api/record/start', { method: 'POST' });
       setTimeout(async () => {
         await fetch('http://localhost:8000/api/record/stop', { method: 'POST' });
-        await fetch('http://localhost:8000/api/record/save', { method: 'POST' });
+        const res = await fetch('http://localhost:8000/api/record/save', { method: 'POST' });
+        const info = await res.json();
+        setSaveData({ filename: info.filename, rows: info.rows });
         setRecordingState('done');
       }, 20000);
     } catch (error) {
@@ -72,6 +83,18 @@ export default function EEGCalibrationFlow({ onFinish }: { onFinish: () => void 
     }
   };
 
+  const handleExport = async () => {
+    await fetch('http://localhost:8000/api/record/save', { method: 'POST' });
+    const res = await fetch('http://localhost:8000/api/record/download');
+    if (!res.ok) return;
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = saveData?.filename ?? 'plux_recording.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div className="animate-in fade-in slide-in-from-right-4 duration-300">
@@ -297,7 +320,7 @@ export default function EEGCalibrationFlow({ onFinish }: { onFinish: () => void 
                     }}
                     className="text-sm font-medium text-violet-600 hover:text-violet-800"
                   >
-                    Run Signal Check
+                    Rerun Signal Check
                   </button>
                 </div>
               </div>
@@ -311,8 +334,8 @@ export default function EEGCalibrationFlow({ onFinish }: { onFinish: () => void 
                  </ul>
               </div>
 
-              <button 
-                disabled={signalStatus !== 'good'}
+              <button
+                disabled={wsState !== 'streaming'}
                 onClick={() => setStep(4)}
                 className="w-full rounded-lg bg-violet-600 py-3 text-sm font-medium text-white transition-all hover:bg-violet-700 disabled:bg-violet-200 disabled:cursor-not-allowed"
               >
@@ -325,25 +348,45 @@ export default function EEGCalibrationFlow({ onFinish }: { onFinish: () => void 
         {/* ==================== STEP 4 ==================== */}
         {step === 4 && (
           <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
-            <div className="flex flex-col items-center justify-center text-center">
-              <p className="mb-8 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
+            <div className="flex flex-col items-center text-center">
+              <p className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
                 To ensure validity of recordings, it is crucial to record the participant's baseline values.
               </p>
-              <p className="mb-6 text-sm font-medium text-gray-900">
-                Press the record button, then focus on the circle for 20 seconds.
+
+              {/* Live waveform during recording */}
+              <div className="mb-4 h-24 w-full overflow-hidden rounded-lg border border-gray-100 bg-gray-50/50">
+                {chartData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={chartData}>
+                      <YAxis domain={['auto', 'auto']} hide />
+                      <Line type="monotone" dataKey="uv" stroke="#7C3AED" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex h-full items-center justify-center">
+                    <span className="text-xs text-gray-400">Awaiting signal...</span>
+                  </div>
+                )}
+              </div>
+
+              <p className="mb-4 text-sm font-medium text-gray-900">
+                Press record, then focus on the circle for 20 seconds.
               </p>
-              
-              <div className={`mb-8 h-40 w-40 rounded-full border-4 border-dashed transition-colors duration-500 ${
+
+              <div className={`mb-6 h-40 w-40 rounded-full border-4 border-dashed transition-colors duration-500 ${
                 recordingState === 'recording' ? 'border-violet-600 bg-violet-100 animate-pulse' : 'border-slate-800 bg-slate-600'
               }`}></div>
 
-              <button 
+              <button
                 onClick={startRealRecording}
                 disabled={recordingState === 'recording'}
                 className="rounded-lg bg-violet-600 px-8 py-2.5 text-sm font-medium text-white transition-all hover:bg-violet-700 disabled:opacity-50"
               >
                 {recordingState === 'idle' ? 'Start Recording' : recordingState === 'recording' ? '• Recording...' : 'Record Again'}
               </button>
+              {saveData && (
+                <p className="mt-3 text-xs text-gray-400">{saveData.filename} · {saveData.rows} samples</p>
+              )}
             </div>
             
             <div className="space-y-6">
@@ -380,10 +423,15 @@ export default function EEGCalibrationFlow({ onFinish }: { onFinish: () => void 
                  </ul>
               </div>
 
-              {/* FINISH BUTTON */}
               {recordingState === 'done' && (
-                <div className="flex justify-end pt-4 animate-in fade-in zoom-in-95 duration-300">
-                  <button 
+                <div className="flex gap-3 justify-end pt-4 animate-in fade-in zoom-in-95 duration-300">
+                  <button
+                    onClick={handleExport}
+                    className="rounded-lg border border-gray-300 px-6 py-3 text-sm font-medium text-gray-700 transition-all hover:bg-gray-50"
+                  >
+                    Export Baseline Recording
+                  </button>
+                  <button
                     onClick={onFinish}
                     className="rounded-lg bg-black px-8 py-3 text-sm font-medium text-white transition-all hover:bg-gray-800"
                   >
