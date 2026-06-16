@@ -47,6 +47,7 @@ export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void 
   };
 
   const [recordingState, setRecordingState] = useState<'idle' | 'recording' | 'done'>('idle');
+  const [countdown, setCountdown] = useState<number | null>(null);
   const [saveData, setSaveData] = useState<{ filename: string; rows: number } | null>(null);
   // Baseline stability verdict from the backend (computed over the full recording).
   const [baseline, setBaseline] = useState<{ stable: boolean | null; reason?: string } | null>(null);
@@ -139,11 +140,19 @@ export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void 
     return () => { cancelled = true; clearTimeout(timer); };
   }, [step]);
 
+  // Countdown timer effect — ticks every second while recording.
+  useEffect(() => {
+    if (countdown === null || countdown <= 0) return;
+    const t = setTimeout(() => setCountdown(c => (c !== null ? c - 1 : null)), 1000);
+    return () => clearTimeout(t);
+  }, [countdown]);
+
   // ==========================================
   // 2. REAL HARDWARE RECORDING LOGIC
   // ==========================================
   const startRealRecording = async () => {
     setRecordingState('recording');
+    setCountdown(30);
     setSaveData(null);
     setBaseline(null);
     try {
@@ -157,6 +166,7 @@ export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void 
         const res = await fetch('http://localhost:8000/api/record/save', { method: 'POST' });
         const info = await res.json();
         setSaveData({ filename: info.filename, rows: info.rows });
+        setCountdown(null);
         setRecordingState('done');
       }, 30000);
     } catch (error) {
@@ -394,9 +404,6 @@ export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void 
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={chartData} margin={{ top: 4, right: 8, left: 4, bottom: 20 }}>
                       <XAxis
-                        dataKey="index"
-                        type="number"
-                        domain={[0, 119]}
                         tickFormatter={(i: number) => `${((i / 120) * 5).toFixed(0)}s`}
                         tick={{ fontSize: 10, fill: '#9ca3af' }}
                         label={{ value: 'Time (last 5 s)', position: 'insideBottom', offset: -8, fontSize: 10, fill: '#9ca3af' }}
@@ -536,9 +543,13 @@ export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void 
                 Press record, then focus on the circle and remain still for 30 seconds.
               </p>
 
-              <div className={`mb-6 h-40 w-40 rounded-full border-4 border-dashed transition-colors duration-500 ${
+              <div className={`mb-6 h-40 w-40 rounded-full border-4 border-dashed transition-colors duration-500 flex items-center justify-center ${
                 recordingState === 'recording' ? 'border-violet-600 bg-violet-100 animate-pulse' : 'border-slate-800 bg-slate-600'
-              }`}></div>
+              }`}>
+                {recordingState === 'recording' && countdown !== null && (
+                  <span className="text-3xl font-bold text-violet-700 tabular-nums">{countdown}</span>
+                )}
+              </div>
 
               <button
                 onClick={startRealRecording}
