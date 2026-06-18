@@ -57,20 +57,29 @@ SENSOR_CLASS_MAP = {
     # clas_code: "eda" | "ecg" | "eeg"
 }
 
-# Baseline-stability thresholds. All operate on 16-bit raw ADC values (0–65535).
-#
-# cv_threshold  — coefficient of variation (std/mean). A resting EDA baseline
-#   should be very flat; CV > 0.015 means the signal is varying ≥ 1.5% of its
-#   own mean per sample — a reliable sign of motion or poor contact.
-#   Override: SENSA_BASELINE_MAX_CV (default 0.015)
-#
-# drift_threshold — absolute drift as a fraction of full scale (65535). If the
-#   mean of the last quarter differs from the first quarter by > 2% of full
-#   scale, the signal is drifting (participant moved/relaxed mid-recording).
-#   Override: SENSA_BASELINE_MAX_DRIFT (default 0.02)
-BASELINE_MAX_CV = float(os.environ.get("SENSA_BASELINE_MAX_CV", "0.015"))
-BASELINE_MAX_DRIFT = float(os.environ.get("SENSA_BASELINE_MAX_DRIFT", "0.02"))
-FULL_SCALE = 65535.0  # 16-bit ADC
+# ---------------------------------------------------------------------------
+# Signal-specific baseline-stability thresholds (16-bit ADC, 0–65535)
+# Literature sources:
+#   EDA — Benedek & Kaernbach (2010); Boucsein (2012)
+#   ECG — Berntson et al. (1997), Psychophysiology guidelines
+#   EEG — Picton et al. (2000), IFCN guidelines
+# ---------------------------------------------------------------------------
+
+# EDA: slow DC signal — CV is valid; drift and spike checks use absolute ADC units.
+EDA_MAX_CV    = 0.05    # 5% CV — real SCL varies more than the old 1.5% limit
+EDA_MAX_DRIFT = 1500    # ADC units drift first→last quarter (≈2.3% of 65535)
+EDA_MAX_SPIKE = 3000    # ADC units max-min within any 1s window (movement artifact)
+
+# ECG: AC cardiac signal — CV is meaningless (near-zero mean).
+ECG_MIN_RANGE        = 500   # ADC units peak-to-peak over full recording (heartbeats visible)
+ECG_CONSISTENCY_FRAC = 0.40  # each 1/4-window range must be ≥ 40% of median (no dropout)
+ECG_CLIP_MAX         = 65000 # rail saturation ceiling
+ECG_CLIP_MIN         = 100   # rail saturation floor
+
+# EEG: AC brain signal — CV is meaningless (near-zero mean).
+EEG_MIN_RMS     = 50   # ADC units — overall RMS must exceed noise floor
+EEG_MAX_RMS_CV  = 3.0  # no per-5s-window RMS may be >3× the median (burst artifact)
+EEG_FLATLINE_STD = 10  # ADC units — any 2s window below this = electrode disconnected
 
 # ---------------------------------------------------------------------------
 # plux.pyd location + import
@@ -193,6 +202,149 @@ def _build_acquisition_class():
             return bool(mgr and mgr._should_stop)
 
     return PluxAcquisition
+
+
+# ---------------------------------------------------------------------------
+# Signal-specific baseline quality functions
+# All return: {"stable": bool|None, "reason": str, ...diagnostic fields}
+# ---------------------------------------------------------------------------
+
+def _rms(vals: list[float]) -> float:
+    import math
+    if not vals:
+        return 0.0
+    return math.sqrt(sum(v * v for v in vals) / len(vals))
+
+
+def _std(vals: list[float]) -> float:
+    import math
+    if len(vals) < 2:
+        return 0.0
+    mean = sum(vals) / len(vals)
+    return math.sqrt(sum((v - mean) ** 2 for v in vals) / len(vals))
+
+
+def _median(vals: list[float]) -> float:
+    s = sorted(vals)
+    n = len(s)
+    return (s[n // 2] + s[(n - 1) // 2]) / 2 if n else 0.0
+
+
+def _baseline_eda(vals: list[float]) -> dict:
+    """EDA is a slow DC signal — CV, drift, and spike checks are all valid.
+    Ref: Benedek & Kaernbach (2010); Boucsein (2012)."""
+    import math
+    if len(vals) < 50:
+        return {"stable": None, "reason": "too few samples"}
+    n = len(vals)
+    mean = sum(vals) / n
+    if mean == 0:
+        return {"stable": None, "reason": "zero-mean signal"}
+
+    std = _std(vals)
+    cv = std / abs(mean)
+
+    q = max(n // 4, 1)
+    drift = abs(sum(vals[-q:]) / q - sum(vals[:q]) / q)
+
+    # Spike check: any 1s window (SAMPLING_RATE samples) with large range
+    spike = False
+    win = SAMPLING_RATE
+    for i in range(0, n - win, win):
+        if max(vals[i:i + win]) - min(vals[i:i + win]) > EDA_MAX_SPIKE:
+            spike = True
+            break
+
+    reasons = []
+    if cv > EDA_MAX_CV:
+        reasons.append("excessive noise")
+    if drift > EDA_MAX_DRIFT:
+        reasons.append("signal drift")
+    if spike:
+        reasons.append("movement artifact")
+
+    return {
+        "stable": len(reasons) == 0,
+        "cv": round(cv, 5),
+        "drift": round(drift, 1),
+        "reason": ", ".join(reasons) if reasons else "stable",
+    }
+
+
+def _baseline_ecg(vals: list[float]) -> dict:
+    """ECG is an AC cardiac signal — CV is meaningless (near-zero mean).
+    Checks: overall range (heartbeats visible), per-quarter range consistency
+    (no electrode dropout), and rail clipping.
+    Ref: Berntson et al. (1997), Psychophysiology guidelines."""
+    if len(vals) < 50:
+        return {"stable": None, "reason": "too few samples"}
+    n = len(vals)
+    overall_range = max(vals) - min(vals)
+
+    # Per-quarter ranges
+    q = max(n // 4, 1)
+    quarter_ranges = [
+        max(vals[i * q:(i + 1) * q]) - min(vals[i * q:(i + 1) * q])
+        for i in range(4)
+    ]
+    med_range = _median(quarter_ranges)
+    consistent = all(r >= ECG_CONSISTENCY_FRAC * med_range for r in quarter_ranges)
+    clipped = max(vals) >= ECG_CLIP_MAX or min(vals) <= ECG_CLIP_MIN
+
+    reasons = []
+    if overall_range < ECG_MIN_RANGE:
+        reasons.append("signal too weak (check electrode contact)")
+    if not consistent:
+        reasons.append("intermittent signal loss")
+    if clipped:
+        reasons.append("signal clipping")
+
+    return {
+        "stable": len(reasons) == 0,
+        "range": round(overall_range, 1),
+        "reason": ", ".join(reasons) if reasons else "stable",
+    }
+
+
+def _baseline_eeg(vals: list[float]) -> dict:
+    """EEG is an AC brain signal — CV is meaningless (near-zero mean).
+    Checks: overall RMS above noise floor, per-5s-window RMS consistency
+    (burst artifact), and flatline detection (electrode disconnected).
+    Ref: Picton et al. (2000), IFCN guidelines."""
+    if len(vals) < 50:
+        return {"stable": None, "reason": "too few samples"}
+    n = len(vals)
+    overall_rms = _rms(vals)
+
+    # Per-5s-window RMS
+    win5 = SAMPLING_RATE * 5
+    window_rmses = [
+        _rms(vals[i:i + win5])
+        for i in range(0, n - win5, win5)
+    ] or [overall_rms]
+    med_rms = _median(window_rmses)
+    burst = any(r > EEG_MAX_RMS_CV * med_rms for r in window_rmses)
+
+    # Flatline: any 2s window with std < threshold
+    win2 = SAMPLING_RATE * 2
+    flatline = any(
+        _std(vals[i:i + win2]) < EEG_FLATLINE_STD
+        for i in range(0, n - win2, win2)
+    )
+
+    reasons = []
+    if overall_rms < EEG_MIN_RMS:
+        reasons.append("signal too weak")
+    if burst:
+        reasons.append("burst artifact detected")
+    if flatline:
+        reasons.append("electrode appears disconnected (flatline)")
+
+    return {
+        "stable": len(reasons) == 0,
+        "rms": round(overall_rms, 2),
+        "reason": ", ".join(reasons) if reasons else "stable",
+    }
 
 
 class PluxManager:
@@ -396,65 +548,22 @@ class PluxManager:
 
         Returns {"sample_count", "quality": {<channel>: {...}}} so the UI can
         show whether the baseline is stable (and prompt a re-record if not).
+        Each channel uses a signal-specific algorithm (see helpers below).
         """
         with self._lock:
             self._recording = False
             rows = list(self._recorded_rows)
             keys = list(self._channel_map.keys())
-        quality = self._baseline_quality(rows, keys)
+
+        _dispatch = {"eda": _baseline_eda, "ecg": _baseline_ecg, "eeg": _baseline_eeg}
+        quality: dict[str, dict] = {}
+        for key in keys:
+            vals = [r.get(f"{key}_raw") for r in rows if r.get(f"{key}_raw") is not None]
+            fn = _dispatch.get(key, _baseline_eda)
+            quality[key] = fn(vals)
+
         logger.info("PLUX recording stopped (%d rows) quality=%s", len(rows), quality)
         return {"sample_count": len(rows), "quality": quality}
-
-    @staticmethod
-    def _baseline_quality(rows: list[dict], keys: list[str]) -> dict:
-        """Per-channel baseline stability verdict from the recorded rows.
-
-        Uses two absolute metrics on 16-bit ADC values so that uniformly noisy
-        recordings (where every sample is large) are correctly flagged:
-
-        cv   = std(values) / mean(values)  — coefficient of variation.
-               Catches high moment-to-moment variability regardless of amplitude.
-        drift = |mean(last_quarter) - mean(first_quarter)| / FULL_SCALE
-               Catches slow drift across the recording.
-        """
-        import math
-
-        result: dict[str, dict] = {}
-        for key in keys:
-            vals = [r.get(f"{key}_raw") for r in rows]
-            vals = [v for v in vals if v is not None]
-            if len(vals) < 50:
-                result[key] = {"stable": None, "reason": "too few samples"}
-                continue
-
-            n = len(vals)
-            mean = sum(vals) / n
-            if mean == 0:
-                result[key] = {"stable": None, "reason": "zero-mean signal"}
-                continue
-
-            variance = sum((v - mean) ** 2 for v in vals) / n
-            std = math.sqrt(variance)
-            cv = std / abs(mean)
-
-            q = max(n // 4, 1)
-            drift = abs(
-                sum(vals[-q:]) / q - sum(vals[:q]) / q
-            ) / FULL_SCALE
-
-            reasons = []
-            if cv > BASELINE_MAX_CV:
-                reasons.append("excessive noise")
-            if drift > BASELINE_MAX_DRIFT:
-                reasons.append("signal drift")
-
-            result[key] = {
-                "stable": len(reasons) == 0,
-                "cv": round(cv, 5),
-                "drift": round(drift, 5),
-                "reason": ", ".join(reasons) if reasons else "stable",
-            }
-        return result
 
     def save(self, output_dir: Path) -> dict:
         """Write the recorded rows to an enriched CSV and return file info.
