@@ -23,6 +23,10 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
   const [tobiiLaunchMsg, setTobiiLaunchMsg] = useState<string>('');
 
   const [calibrationPhase, setCalibrationPhase] = useState<'idle' | 'running' | 'done'>('idle');
+  // 'countdown' = instruction screen before dots appear; 'dots' = dots visible
+  const [overlayStage, setOverlayStage] = useState<'countdown' | 'dots'>('countdown');
+  const [introCountdown, setIntroCountdown] = useState(3);
+  const [dotCountdown, setDotCountdown] = useState<number | null>(null);
   const [activeDot, setActiveDot] = useState(-1);
   const [gaze, setGaze] = useState<{ x: number; y: number; valid: boolean } | null>(null);
   const [gazeTrail, setGazeTrail] = useState<Array<{ x: number; y: number; id: number }>>([]);
@@ -87,6 +91,17 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
 
     const runValidation = async () => {
       try {
+        // Show 3-second instruction screen before any dots appear.
+        setOverlayStage('countdown');
+        setIntroCountdown(3);
+        for (let c = 3; c > 0; c--) {
+          if (cancelled) return;
+          setIntroCountdown(c);
+          await sleep(1000);
+        }
+        if (cancelled) return;
+        setOverlayStage('dots');
+
         await fetch('http://localhost:8000/api/calibration/validate/start', { method: 'POST' });
         setPointStatuses(['pending', 'pending', 'pending', 'pending', 'pending']);
         setPointResults([null, null, null, null, null]);
@@ -94,9 +109,11 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
         for (let i = 0; i < DOT_COORDINATES.length; i++) {
           if (cancelled) return;
           setActiveDot(i);
+          setDotCountdown(2);
           setPointStatuses(s => { const n = [...s]; n[i] = 'collecting'; return n; });
           // Give the eye ~0.8s to settle, then collect (backend blocks ~1.5s).
           await sleep(800);
+          setDotCountdown(1);
           if (cancelled) return;
           try {
             const res = await fetch('http://localhost:8000/api/calibration/validate/point', {
@@ -113,6 +130,7 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
             console.error(`Error validating dot ${i}:`, err);
             setPointStatuses(s => { const n = [...s]; n[i] = 'fail'; return n; });
           }
+          setDotCountdown(null);
           await sleep(400);
         }
 
@@ -175,39 +193,74 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
       {/* ==================== FULL SCREEN CALIBRATION OVERLAY ==================== */}
       {calibrationPhase === 'running' && (
         <div className="fixed inset-0 z-[100] bg-black text-white cursor-none animate-in fade-in duration-700">
-          <div className="absolute top-16 w-full text-center text-sm font-medium text-gray-400">
-            Validating tracking — focus on each dot as it lights up.
-            <button
-              onClick={() => { setCalibrationPhase('done'); setStep(4); }}
-              className="block mx-auto mt-2 text-[10px] text-gray-800 hover:text-gray-500 cursor-pointer"
-            >
-              [Dev: Skip]
-            </button>
-          </div>
 
-          {/* Full Screen Calibration Targets — positioned from DOT_COORDINATES
-              so the dot the user fixates is exactly the point we score against. */}
-          {DOT_COORDINATES.map((coord, i) => {
-            const st = pointStatuses[i];
-            const isActive = activeDot === i;
-            const bg = isActive ? '#7C3AED' : st === 'success' ? '#10B981' : st === 'fail' ? '#EF4444' : 'transparent';
-            const border = isActive ? '#7C3AED' : st === 'success' ? '#10B981' : st === 'fail' ? '#EF4444' : '#374151';
-            return (
-              <div key={i}
-                className="absolute h-14 w-14 rounded-full border-[3px] transition-all duration-700 ease-in-out flex items-center justify-center"
-                style={{
-                  left: `${coord.x * 100}%`,
-                  top: `${coord.y * 100}%`,
-                  backgroundColor: bg,
-                  borderColor: border,
-                  transform: `translate(-50%, -50%) scale(${isActive ? 1.25 : 1})`,
-                }}
-              >
-                {/* Inner bullseye dot to give the eye a precise fixation target */}
-                <div className="h-2.5 w-2.5 rounded-full bg-white/90" />
+          {/* ── INSTRUCTION SCREEN (shown for 3s before dots appear) ── */}
+          {overlayStage === 'countdown' && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-8 px-8 text-center animate-in fade-in duration-500">
+              <div className="flex h-20 w-20 items-center justify-center rounded-full border-4 border-lime-400 bg-lime-400/10 shadow-[0_0_40px_rgba(163,230,53,0.4)]">
+                <span className="text-4xl font-black text-lime-400 tabular-nums">{introCountdown}</span>
               </div>
-            );
-          })}
+              <div className="space-y-3 max-w-md">
+                <p className="text-2xl font-bold text-white">Get ready</p>
+                <p className="text-base text-gray-300 leading-relaxed">
+                  A <span className="font-semibold text-lime-400">bright green dot</span> will appear at 5 positions around the screen.
+                  <br />
+                  Follow it with your eyes and <span className="font-semibold text-white">hold your gaze on it</span> until it turns green or red.
+                </p>
+              </div>
+              <button
+                onClick={() => { setCalibrationPhase('done'); setStep(4); }}
+                className="text-[10px] text-gray-800 hover:text-gray-600 cursor-pointer"
+              >
+                [Dev: Skip]
+              </button>
+            </div>
+          )}
+
+          {/* ── DOTS STAGE ── */}
+          {overlayStage === 'dots' && (
+            <>
+              <div className="absolute top-8 w-full text-center text-xs font-medium text-gray-600">
+                Focus on the bright dot — hold still until it changes colour
+              </div>
+
+              {/* Full Screen Calibration Targets — positioned from DOT_COORDINATES
+                  so the dot the user fixates is exactly the point we score against. */}
+              {DOT_COORDINATES.map((coord, i) => {
+                const st = pointStatuses[i];
+                const isActive = activeDot === i;
+                // Bright lime-green for active (high contrast on black), muted ring for pending
+                const bg = isActive ? '#A3E635' : st === 'success' ? '#10B981' : st === 'fail' ? '#EF4444' : 'transparent';
+                const border = isActive ? '#A3E635' : st === 'success' ? '#10B981' : st === 'fail' ? '#EF4444' : '#374151';
+                const glow = isActive ? '0 0 32px rgba(163,230,53,0.7)' : 'none';
+                return (
+                  <div key={i}
+                    className="absolute h-14 w-14 rounded-full border-[3px] transition-all duration-700 ease-in-out flex items-center justify-center"
+                    style={{
+                      left: `${coord.x * 100}%`,
+                      top: `${coord.y * 100}%`,
+                      backgroundColor: bg,
+                      borderColor: border,
+                      boxShadow: glow,
+                      transform: `translate(-50%, -50%) scale(${isActive ? 1.25 : 1})`,
+                    }}
+                  >
+                    {/* Bullseye inner dot */}
+                    <div className="h-2.5 w-2.5 rounded-full bg-black/70" />
+                    {/* Per-dot countdown — shows 2 then 1 during the collect window */}
+                    {isActive && dotCountdown !== null && (
+                      <span
+                        className="absolute -bottom-7 left-1/2 -translate-x-1/2 text-xs font-bold tabular-nums"
+                        style={{ color: '#A3E635' }}
+                      >
+                        {dotCountdown}s
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </>
+          )}
 
           {/* Live gaze trail */}
           {gazeTrail.map((p, idx) => (
@@ -473,7 +526,7 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
 
               <div className="flex justify-center pt-2">
                 <button
-                  onClick={() => setCalibrationPhase('running')}
+                  onClick={() => { setOverlayStage('countdown'); setIntroCountdown(3); setCalibrationPhase('running'); }}
                   className="rounded-lg bg-violet-600 px-10 py-3.5 text-base font-bold text-white transition-all hover:bg-violet-700 shadow-md"
                 >
                   I've Calibrated — Run Validation
@@ -518,7 +571,7 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
                   </div>
                 )}
                 <button
-                  onClick={() => setCalibrationPhase('running')}
+                  onClick={() => { setOverlayStage('countdown'); setIntroCountdown(3); setCalibrationPhase('running'); }}
                   className="w-full sm:w-auto rounded-lg border border-gray-300 bg-white px-6 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
                 >
                   Run Validation Check
