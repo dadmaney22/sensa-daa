@@ -40,7 +40,7 @@ This is where the two groups diverge.
 **Group A (fragmented):**
 1. Participant follows printed task sheet
 2. Opens **Tobii Experience** → creates/calibrates a new eye-tracking profile
-3. Opens **OpenSignals** → attaches EDA/ECG/EEG sensors, runs signal check
+3. Opens **OpenSignals** → attaches EDA sensor, runs signal check, records baseline
 4. Experimenter logs: setup time, errors, help requests
 
 **Group B (unified):**
@@ -48,8 +48,12 @@ This is where the two groups diverge.
    - Positioning step (head distance feedback)
    - Eye calibration launch (Tobii Experience opened *from* Sensa)
    - 5-point gaze validation
-   - Biosignal sensor attachment + signal check + 30s baseline
+   - EDA sensor attachment + signal check + 30s baseline (mean µS displayed)
 2. Experimenter logs: setup time, errors, help requests
+
+**Calibration Completion Criteria** (objective definition of "done"):
+- *EDA calibrated* = baseline recording exists with mean EDA displayed in µS + signal passes validity check (CV ≤ 5%, no excess drift/spikes)
+- *Eye tracker calibrated* = calibrated in Tobii Experience **and** validated in Sensa with accuracy° / precision° shown on screen
 
 **DVs captured here:**
 - Setup time (stopwatch)
@@ -65,12 +69,12 @@ Experimenter operates both instruments. Participant sits still.
 - Record: accuracy°, precision°, valid-data yield per point
 - Why neutral: Tobii's runtime built the gaze model in both arms — Sensa only displays the grid and scores the result
 
-**Biosignal quality** (neutral instrument: OpenSignals):
-- Record a fixed-duration baseline window in OpenSignals for both groups
+**EDA quality** (neutral instrument: OpenSignals):
+- Record a fixed-duration EDA baseline window in OpenSignals for both groups
 - Export CSV, compute quality metrics offline:
-  - EDA: CV ≤ 5%, drift ≤ 1500 ADC, no spike > 3000 ADC/s
-  - ECG: range ≥ 500 ADC, per-window consistency ≥ 40% median, no clipping
-  - EEG: RMS > 50 ADC, no burst > 3× median RMS, no flatline (std < 10 ADC)
+  - CV ≤ 5%, drift ≤ 1500 ADC, no spike > 3000 ADC/s
+  - Report mean SCL in µS as the primary quality indicator
+- Note: ECG/EEG are part of the setup task but are **not scored** as DVs
 
 ### 4. Debrief
 - Short preference interview
@@ -118,4 +122,73 @@ Experimenter operates both instruments. Participant sits still.
 | H2 | Fewer errors (Sensa) | Error count, setup phase |
 | H3 | Lower workload (Sensa) | NASA-TLX, post-setup |
 | H4 | Higher usability (Sensa) | SUS, post-setup (Group B only) |
-| H5 | Equivalent data quality (both groups) | Eye accuracy° via 5-pt grid + biosignal quality via OpenSignals, verification phase |
+| H5 | Equivalent data quality (both groups) | Eye accuracy° via 5-pt grid + EDA mean µS + signal validity via OpenSignals, verification phase |
+
+**Statistics:**
+- H1–H4: Mann-Whitney U (or independent-samples t-test if normality holds)
+- H5: Independent-groups TOST (equivalence test) — null is *difference*, alternative is *equivalence within a margin*
+
+---
+
+---
+
+## Recommended Alternative: Within-Subjects A/B Design
+
+### Why This Is Better for a Thesis
+
+| Factor | Two-Group (between) | Within-Subjects A/B |
+|---|---|---|
+| Participants needed | ~2× more | Fewer (paired, higher power) |
+| Individual differences (tech skill, anxiety) | Noise — absorbed by randomisation | Controlled — each person is their own baseline |
+| Tobii profile overwrite | No issue | Must verify before re-calibration |
+| Session complexity | One cycle per person | Two cycles + washout |
+| Confound | Between-person variance | Practice effect (fixed by counterbalancing) |
+| Statistical test | Independent-samples | Paired (Wilcoxon / TOST) — more power |
+
+**Recommendation:** Use within-subjects for a master's thesis with a small sample. Paired data is dramatically more sensitive to the tool effect you're measuring.
+
+### Design Structure
+
+Each participant completes **both** conditions in counterbalanced order:
+- Half: Fragmented → Sensa
+- Half: Sensa → Fragmented
+
+### Session Cycle (×2 per participant)
+
+```
+Setup (Tool X)  →  Verify (Tool X)  →  washout  →  Setup (Tool Y)  →  Verify (Tool Y)  →  Debrief
+```
+
+#### Setup phase (same task, different tool)
+Participant calibrates the eye tracker + records an EDA baseline using their assigned tool for this cycle. Experimenter logs: time, errors, help requests. NASA-TLX + SUS (if Sensa) collected immediately after.
+
+#### Verify phase (experimenter-operated, after every setup)
+**Critical rule:** Tobii 4C stores only ONE active gaze model at a time. The second calibration *overwrites* the first. You must verify **before** moving to the next tool.
+
+- **Gaze accuracy:** Experimenter runs Sensa's 5-point grid → records accuracy°, precision°, valid-data yield
+- **EDA quality:** Experimenter records a fixed baseline window in OpenSignals → mean SCL µS + signal validity (CV, drift, spikes)
+
+#### Washout (10–15 min between cycles)
+- Re-seat the participant
+- Re-attach EDA electrodes with fresh gel / new skin prep site (EDA habituates — reusing the same site gives a lower reading the second time regardless of tool)
+- Let participant rest
+
+#### Debrief (after both cycles)
+- Forced-choice preference question: "Which tool would you prefer for real study setup?"
+- Open-ended feedback
+
+### EDA Caveat
+EDA skin conductance level (SCL) **drifts down** over a session as the participant habituates. Do **not** compare raw mean µS between the two cycles — the second will naturally read lower. Instead:
+- Use **signal validity** (CV, drift, spike metrics) as the quality DV, not raw µS
+- Report the raw µS per cycle descriptively, but note the habituation effect in your limitations
+
+### Statistics
+- H1–H3: **Wilcoxon signed-rank test** (paired, non-parametric) for time, errors, workload
+- H4: paired SUS comparison (Wilcoxon)
+- H5: **Paired-samples TOST** (equivalence test on the difference score) for gaze accuracy and EDA validity
+
+### Thesis Sections Affected
+Same revisions as the two-group design (6.4.3–6.4.5), plus:
+- **6.4.2 Design:** change from between-subjects to within-subjects repeated measures; add counterbalancing rationale
+- **6.4.4 Procedure:** describe two-cycle structure, washout protocol, Tobii overwrite rule
+- **6.4.5 DVs:** note EDA quality DV is signal validity (not raw SCL) to control for habituation
