@@ -45,7 +45,7 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
   // true if calibration was accepted without any prior recalibration
   const [firstPassSuccess, setFirstPassSuccess] = useState<boolean | null>(null);
   // full result snapshot used for export (kept in a ref so export button always has latest)
-  const exportRef = { recalibrationCount, firstPassSuccess };
+  //const exportRef = { recalibrationCount, firstPassSuccess };
 
   // Fetch hardware status once on mount
   useEffect(() => {
@@ -607,7 +607,6 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
                     const pr = pointResults[i];
                     const hasResult = pr != null;
                     const passed = hasResult && pr.valid && (pr.accuracy_degrees ?? 99) <= passThreshold;
-                    const failed = hasResult && (!pr.valid || (pr.accuracy_degrees ?? 99) > passThreshold);
                     const ringColor = !hasResult ? '#9CA3AF' : passed ? '#10B981' : '#EF4444';
                     return (
                       <div

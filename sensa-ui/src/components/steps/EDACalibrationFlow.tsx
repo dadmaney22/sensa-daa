@@ -20,7 +20,6 @@ export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void 
   const step2Required = ['conn1', 'en1', 'en2', 'en3'];
 
   // Step 3 State
-  const [signalStatus, setSignalStatus] = useState<'unknown' | 'checking' | 'good'>('unknown');
 
   // Live-stream diagnostics
   const [wsState, setWsState] = useState<'idle' | 'connecting' | 'streaming' | 'error' | 'closed'>('idle');
@@ -49,9 +48,8 @@ export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void 
   const [recordingState, setRecordingState] = useState<'idle' | 'recording' | 'done'>('idle');
   const [countdown, setCountdown] = useState<number | null>(null);
   const [saveData, setSaveData] = useState<{ filename: string; rows: number } | null>(null);
-  // Baseline stability verdict from the backend (computed over the full recording).
-  const [baseline, setBaseline] = useState<{ stable: boolean | null; reason?: string } | null>(null);
-
+ // Baseline stability verdict from the backend (computed over the full recording).
+  const [baseline, setBaseline] = useState<{ stable: boolean | null; reason?: string; mean_us?: number } | null>(null);
   // Rolling buffer of the last ~120 live samples for the chart
   const [chartData, setChartData] = useState<{ uv: number }[]>([]);
 
@@ -98,7 +96,7 @@ export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void 
         if (next.length > 120) next.shift();
         return next;
       });
-      setSignalStatus(prev => (prev === 'checking' ? 'good' : prev));
+
     };
 
     ws.onerror = () => setWsState('error');
@@ -162,7 +160,7 @@ export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void 
         const stopInfo = await stopRes.json();
         // Backend assesses stability over the full recording; read the EDA verdict.
         const q = stopInfo?.quality?.eda;
-        setBaseline(q ? { stable: q.stable, reason: q.reason } : { stable: null });
+        setBaseline(q ? { stable: q.stable, reason: q.reason, mean_us: q.mean_us } : { stable: null });
         const res = await fetch('http://localhost:8000/api/record/save', { method: 'POST' });
         const info = await res.json();
         setSaveData({ filename: info.filename, rows: info.rows });
@@ -175,7 +173,7 @@ export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void 
     }
   };
 
-  const handleExport = async () => {
+ const handleExport = async () => {
     // Re-save (idempotent) then stream the file to the browser.
     await fetch('http://localhost:8000/api/record/save', { method: 'POST' });
     const res = await fetch('http://localhost:8000/api/record/download');
@@ -184,7 +182,7 @@ export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void 
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = saveData?.filename ?? 'plux_recording.csv';
+    a.download = saveData?.filename ?? 'plux_recording.h5'; // <--- UPDATED THIS LINE
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -477,7 +475,6 @@ export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void 
                       setMsgCount(0);
                       setLastRaw(null);
                       setWsError(null);
-                      setSignalStatus('checking');
                       setWsAttempt(a => a + 1);
                     }}
                     className="text-sm font-medium text-violet-600 hover:text-violet-800"
@@ -603,31 +600,20 @@ export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void 
                       : 'text-gray-500'}`}>
                       {recordingState === 'idle' ? 'unknown'
                         : recordingState === 'recording' ? 'recording...'
+                        : baseline?.mean_us !== undefined ? `${baseline.mean_us.toFixed(2)} µS`
                         : baseline?.stable === true ? 'Stable'
-                        : baseline?.stable === false ? 'Unstable'
+                        : baseline?.stable === false ? 'Abnormal'
                         : 'Recorded'}
                     </span>
                   </div>
                 </div>
               </div>
 
-              <div className="rounded-lg border border-gray-200 bg-white">
-                 <h4 className="border-b border-gray-200 bg-gray-100 px-4 py-2 text-xs font-bold uppercase text-gray-700 flex items-center gap-2">
-                   <div className="flex h-4 w-4 items-center justify-center rounded bg-gray-300 text-[10px] font-bold text-gray-600">-</div>
-                   Instructions
-                 </h4>
-                 <ul className="space-y-2 p-4 text-sm text-gray-700">
-                   <li>1. Sit still </li>
-                   <li>2. Avoid hand or finger movement</li>
-                   <li>3. Breathe normally while recording</li>
-                 </ul>
-              </div>
-
               {recordingState === 'done' && baseline?.stable === false && (
                 <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 animate-in fade-in duration-300">
                   <AlertCircle className="h-5 w-5 shrink-0 text-red-600" />
                   <span>
-                    Baseline looks unstable{baseline.reason ? ` (${baseline.reason})` : ''}. Keep the hand still
+                    Baseline reading is abnormal{baseline.reason ? ` (${baseline.reason})` : ''}. Keep the hand still
                     and press <span className="font-medium">Record Again</span> for a cleaner baseline.
                   </span>
                 </div>

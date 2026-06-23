@@ -19,7 +19,6 @@ export default function EEGCalibrationFlow({ onFinish }: { onFinish: () => void 
   const step2Required = ['conn1', 'en1', 'en2', 'en3'];
 
   // Step 3 State
-  const [signalStatus, setSignalStatus] = useState<'unknown' | 'checking' | 'good'>('unknown');
   const [wsState, setWsState] = useState<'idle' | 'connecting' | 'streaming' | 'error' | 'closed'>('idle');
   const [pluxStatus, setPluxStatus] = useState<
     {
@@ -76,7 +75,6 @@ export default function EEGCalibrationFlow({ onFinish }: { onFinish: () => void 
         if (newData.length > 60) newData.shift();
         return newData;
       });
-      setSignalStatus((prev) => (prev === 'checking' ? 'good' : prev));
     };
     ws.onerror = () => setWsState('error');
     ws.onclose = () => setWsState(s => s === 'error' ? s : 'closed');
@@ -427,7 +425,6 @@ export default function EEGCalibrationFlow({ onFinish }: { onFinish: () => void 
                     onClick={() => {
                       // The WebSocket onmessage flips status to 'good' as soon
                       // as real hardware frames arrive.
-                      setSignalStatus('checking');
                     }}
                     className="text-sm font-medium text-violet-600 hover:text-violet-800"
                   >
