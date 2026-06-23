@@ -93,7 +93,7 @@ function ThankYouScreen() {
 // ---------------------------------------------------------------------------
 
 export default function CalibrationStep({
-  onContinue,
+  onContinue: _onContinue,
   onUpdateHeader,
 }: {
   onContinue: () => void;
@@ -104,7 +104,7 @@ export default function CalibrationStep({
   const [calibrationPhase, setCalibrationPhase] = useState<'empty' | 'active'>('empty');
   const [showThankYou, setShowThankYou] = useState(false);
 
-  const coreCalibrated = ['eye', 'gsr'].every(id => calibratedSensors.includes(id));
+  const coreCalibrated = true; // always enabled for now
 
   useEffect(() => {
     if (activeSensorId) {
@@ -255,8 +255,8 @@ export default function CalibrationStep({
           End Testing Task
         </button>
         <button
-          onClick={onContinue}
-          className="rounded-lg bg-black px-6 py-2.5 text-sm font-medium text-white hover:bg-gray-800 transition-colors"
+          disabled
+          className="rounded-lg bg-gray-100 px-6 py-2.5 text-sm font-medium text-gray-400 cursor-not-allowed"
         >
           Proceed to Recording Data
         </button>
