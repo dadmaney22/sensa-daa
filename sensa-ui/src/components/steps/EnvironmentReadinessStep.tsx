@@ -33,12 +33,12 @@ const CHECKLIST_ITEMS = [
   },
   {
     id: 'cleaning',
-    title: 'Clean and wipe biometric sensors',
-    description: 'All sensors to be used should be wiped with an alcohol swab to ensure good signal contact and easy calibration.',
+    title: 'Ensure electrodes are attached to each biosensor',
+    description: 'Confirm that all electrodes are securely connected to their respective biosensors before proceeding.',
     tooltip: [
-      "Wipe all electrode contact surfaces with an alcohol-based swab and allow them to dry before placement.",
-      "This removes skin oils and residue that increase contact impedance and degrade signal quality.",
-      "Do not place electrodes on skin until the swab has fully dried."
+      "Check that each electrode cable is firmly plugged into the biosignalsplux hub.",
+      "Loose or disconnected electrodes will result in missing or noisy signal channels during calibration.",
+      "Ensure the electrode snap connectors are fully seated on the sensor contacts."
     ]
   }
 ];

@@ -6,29 +6,42 @@ import SensorRecommendationStep from './components/steps/SensorRecommendationSte
 import ManualSensorSelectionStep from './components/steps/ManualSensorSelectionStep';
 import ProjectDetailsStep from './components/steps/ProjectDetailsStep';
 import EnvironmentReadinessStep from './components/steps/EnvironmentReadinessStep';
-import CalibrationStep from './components/steps/CalibrationStep'; 
+import CalibrationStep from './components/steps/CalibrationStep';
+
+export interface StudyConfig {
+  studyName: string;
+  studyType: string;
+  selectedGoal: string;
+  selectedEquipment: string[];
+  interfaceType: string;
+  environmentType: string;
+}
 
 export default function App() {
-  // State to control whether we are on the Home screen or in the Wizard
   const [appState, setAppState] = useState<'home' | 'wizard'>('home');
-  
   const [currentStep, setCurrentStep] = useState(1);
-  const totalSteps = 13; 
+  const totalSteps = 13;
   const [headerOverride, setHeaderOverride] = useState<{title: string, subtitle: string} | null>(null);
+  const [studyConfig, setStudyConfig] = useState<StudyConfig>({
+    studyName: '',
+    studyType: '',
+    selectedGoal: '',
+    selectedEquipment: [],
+    interfaceType: '',
+    environmentType: '',
+  });
 
-  // If appState is 'home', ONLY render the Home component
   if (appState === 'home') {
     return (
-      <Home 
+      <Home
         onStartWizard={() => {
-          setCurrentStep(1); // Ensure we always start at step 1
-          setAppState('wizard'); // Switch to the wizard view
-        }} 
+          setCurrentStep(1);
+          setAppState('wizard');
+        }}
       />
     );
   }
 
-  // Otherwise, render previous Wizard 
   const stepContent = {
     1: { title: "Study Setup", subtitle: "Configure your research study parameters" },
     2: { title: "Sensor Recommendation", subtitle: "Based on your study configuration, we recommend the following setup:" },
@@ -41,13 +54,12 @@ export default function App() {
   const currentContent = stepContent[currentStep as keyof typeof stepContent] || stepContent[1];
 
   return (
-    <SetupLayout 
-      currentStep={currentStep} 
+    <SetupLayout
+      currentStep={currentStep}
       totalSteps={totalSteps}
       title={headerOverride?.title || currentContent.title}
       subtitle={headerOverride?.subtitle || currentContent.subtitle}
       onBack={() => {
-        // If we click back we go back to the Home screen
         if (currentStep === 1) {
           setAppState('home');
         } else {
@@ -57,25 +69,30 @@ export default function App() {
       }}
     >
       {currentStep === 1 && (
-        <StudySetupStep 
-          onContinue={() => setCurrentStep(2)} 
+        <StudySetupStep
+          initialConfig={studyConfig}
+          onContinue={(config) => {
+            setStudyConfig(config);
+            setCurrentStep(2);
+          }}
         />
       )}
-      
+
       {currentStep === 2 && (
-        <SensorRecommendationStep 
+        <SensorRecommendationStep
           onCustomize={() => setCurrentStep(3)}
-          onAccept={() => setCurrentStep(4)} 
+          onAccept={() => setCurrentStep(4)}
         />
       )}
-      
+
       {currentStep === 3 && (
         <ManualSensorSelectionStep onContinue={() => setCurrentStep(4)} />
       )}
 
       {currentStep === 4 && (
-        <ProjectDetailsStep 
-          onContinue={() => setCurrentStep(5)} 
+        <ProjectDetailsStep
+          studyConfig={studyConfig}
+          onContinue={() => setCurrentStep(5)}
           onEdit={() => setCurrentStep(1)}
         />
       )}
@@ -85,9 +102,9 @@ export default function App() {
       )}
 
       {currentStep === 6 && (
-        <CalibrationStep 
-          onContinue={() => setCurrentStep(7)} 
-          onUpdateHeader={setHeaderOverride} 
+        <CalibrationStep
+          onContinue={() => setCurrentStep(7)}
+          onUpdateHeader={setHeaderOverride}
         />
       )}
 
