@@ -27,6 +27,8 @@ from collections import deque
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+import h5py
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +91,7 @@ _BACKEND_DIR = Path(__file__).resolve().parent.parent
 
 _PLUX_SEARCH_DIRS = [
     os.environ.get("SENSA_PLUX_PATH", ""),
-    str(_BACKEND_DIR),
+str(_BACKEND_DIR),
     str(_BACKEND_DIR / "plux"),
     r"C:\Program Files\PLUX\PythonAPI",
     r"C:\Program Files (x86)\PLUX\PythonAPI",
@@ -237,12 +239,16 @@ def _baseline_eda(vals: list[float]) -> dict:
     if len(vals) < 50:
         return {"stable": None, "reason": "too few samples"}
     n = len(vals)
-    mean = sum(vals) / n
-    if mean == 0:
+    mean_raw = sum(vals) / n
+    if mean_raw == 0:
         return {"stable": None, "reason": "zero-mean signal"}
 
+    # Convert to microSiemens (µS)
+    # VCC = 3.0V, Resolution = 16 bits (65536), Sensitivity = 0.12 V/µS
+    mean_us = (mean_raw / 65536.0) * 3.0 / 0.12
+
     std = _std(vals)
-    cv = std / abs(mean)
+    cv = std / abs(mean_raw)
 
     q = max(n // 4, 1)
     drift = abs(sum(vals[-q:]) / q - sum(vals[:q]) / q)
@@ -262,11 +268,16 @@ def _baseline_eda(vals: list[float]) -> dict:
         reasons.append("signal drift")
     if spike:
         reasons.append("movement artifact")
+        
+    # NEW: Absolute range check (2 to 10 µS)
+    if not (2.0 <= mean_us <= 10.0):
+        reasons.append(f"mean out of range ({mean_us:.2f} µS)")
 
     return {
         "stable": len(reasons) == 0,
         "cv": round(cv, 5),
         "drift": round(drift, 1),
+        "mean_us": round(mean_us, 2), # Expose the calculated µS to React
         "reason": ", ".join(reasons) if reasons else "stable",
     }
 
@@ -566,16 +577,10 @@ class PluxManager:
         return {"sample_count": len(rows), "quality": quality}
 
     def save(self, output_dir: Path) -> dict:
-        """Write the recorded rows to an enriched CSV and return file info.
-
-        Format:
-          # metadata comment lines (device, sample rate, channel map, start time)
-          seq,datetime_iso,elapsed_s,<SENSOR>_raw,...
-          0,2026-06-16T12:01:00.123,0.000,32100,...
-        """
+        """Write the recorded rows to an HDF5 (.h5) file and return file info."""
         output_dir.mkdir(parents=True, exist_ok=True)
         ts = time.strftime("%Y%m%d_%H%M%S")
-        filepath = output_dir / f"plux_recording_{ts}.csv"
+        filepath = output_dir / f"plux_recording_{ts}.h5"
 
         with self._lock:
             rows = list(self._recorded_rows)
@@ -586,30 +591,32 @@ class PluxManager:
         t0 = rows[0]["timestamp"] if rows else 0.0
         recording_start_iso = datetime.fromtimestamp(t0).isoformat() if rows else ""
 
-        # Metadata header lines (prefixed with # so pandas/Excel skips them easily)
-        meta = [
-            f"# device_address,{device_address}",
-            f"# sample_rate_hz,{SAMPLING_RATE}",
-            f"# channel_map,{json.dumps(channel_map)}",
-            f"# recording_start,{recording_start_iso}",
-        ]
+        # Build HDF5 file
+        with h5py.File(filepath, "w") as f:
+            # 1. Store Metadata as HDF5 root attributes
+            f.attrs["device_address"] = device_address
+            f.attrs["sample_rate_hz"] = SAMPLING_RATE
+            f.attrs["channel_map"] = json.dumps(channel_map)
+            f.attrs["recording_start"] = recording_start_iso
 
-        col_names = ["seq", "datetime_iso", "elapsed_s"] + [f"{k.upper()}_raw" for k in keys]
-        data_lines = [",".join(col_names)]
-        for r in rows:
-            t = r.get("timestamp", t0)
-            cells = [
-                str(r.get("seq", "")),
-                datetime.fromtimestamp(t).isoformat(),
-                f"{t - t0:.4f}",
-            ]
-            for k in keys:
-                v = r.get(f"{k}_raw")
-                cells.append("" if v is None else str(v))
-            data_lines.append(",".join(cells))
+            if rows:
+                # 2. Extract shared time data
+                seqs = [r.get("seq", 0) for r in rows]
+                elapsed = [(r.get("timestamp", t0) - t0) for r in rows]
+                
+                f.create_dataset("seq", data=np.array(seqs, dtype=np.int32))
+                f.create_dataset("elapsed_s", data=np.array(elapsed, dtype=np.float64))
 
-        filepath.write_text("\n".join(meta + data_lines), encoding="utf-8")
-        logger.info("PLUX recording saved: %s (%d rows)", filepath, len(rows))
+                # 3. Extract and store sensor channels
+                for k in keys:
+                    # Replace missing samples with 0 to maintain array shape
+                    vals = [r.get(f"{k}_raw") for r in rows]
+                    vals = [v if v is not None else 0 for v in vals]
+                    
+                    # 16-bit unsigned integer matches PLUX raw ADC output perfectly
+                    f.create_dataset(f"{k}_raw", data=np.array(vals, dtype=np.uint16))
+
+        logger.info("PLUX recording saved to HDF5: %s (%d rows)", filepath, len(rows))
         self._last_save_path = str(filepath)
         return {"filename": filepath.name, "filepath": str(filepath), "rows": len(rows)}
 

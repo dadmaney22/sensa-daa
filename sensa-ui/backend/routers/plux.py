@@ -127,12 +127,12 @@ async def record_save():
 
 @router.get("/api/record/download")
 async def record_download():
-    """Return the most recently saved recording CSV as a file download."""
+    """Return the most recently saved recording HDF5 as a file download."""
     path = plux_manager.last_save_path
     if not path or not Path(path).exists():
         raise HTTPException(status_code=404, detail="No recording saved yet — call /api/record/save first.")
     return FileResponse(
         path,
-        media_type="text/csv",
+        media_type="application/x-hdf5", # <--- UPDATED THIS LINE
         headers={"Content-Disposition": f"attachment; filename={Path(path).name}"},
     )
