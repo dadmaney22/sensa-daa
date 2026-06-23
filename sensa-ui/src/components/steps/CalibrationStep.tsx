@@ -104,7 +104,7 @@ export default function CalibrationStep({
   const [calibrationPhase, setCalibrationPhase] = useState<'empty' | 'active'>('empty');
   const [showThankYou, setShowThankYou] = useState(false);
 
-  const coreCalibrated = true; // always enabled for now
+  const coreCalibrated = ['eye', 'gsr'].every(id => calibratedSensors.includes(id));
 
   useEffect(() => {
     if (activeSensorId) {
