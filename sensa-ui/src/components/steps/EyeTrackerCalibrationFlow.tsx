@@ -372,7 +372,7 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
                 <h4 className="mb-4 text-xs font-bold uppercase tracking-wider text-gray-500">Instructions</h4>
                 <ol className="space-y-3 text-sm text-gray-700">
                   <li>1. Sit directly in front of the screen at eye level</li>
-                  <li>2. Maintain approximately 90 cm distance from the monitor</li>
+                  <li>2. Maintain approximately 60 cm distance from the monitor</li>
                   <li>3. Keep your head still and face the screen directly</li>
                   <li>4. The next screen will confirm your position using the eye tracker</li>
                 </ol>
@@ -395,7 +395,7 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
 
                <div className="relative flex w-full flex-col items-center justify-center overflow-hidden rounded-2xl bg-[#3B3E46] py-16 text-center shadow-inner">
                   <div className="absolute top-1/2 w-full border-t border-dashed border-gray-500/30"></div>
-                  <span className="absolute right-6 top-1/2 -translate-y-1/2 text-xs text-gray-500">optimal range (~90cm)</span>
+                  <span className="absolute right-6 top-1/2 -translate-y-1/2 text-xs text-gray-500">optimal range (~60cm)</span>
                   
                   <div className="z-10 mb-12 flex gap-12">
                     <div className="flex flex-col items-center gap-4">

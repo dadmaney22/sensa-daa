@@ -5,10 +5,10 @@ const CHECKLIST_ITEMS = [
   {
     id: 'seated',
     title: 'Participant seated correctly',
-    description: 'Participant is comfortably seated at the workstation with proper posture and correct viewing distance (approx. 90cm).',
+    description: 'Participant is comfortably seated at the workstation with proper posture and correct viewing distance (approx. 60cm).',
     tooltip: [
       "Ensure the participant sits upright with their back supported and eyes level with the screen.",
-      "Their face should be approximately 90 cm from the monitor (roughly an arm's length).",
+      "Their face should be approximately 60 cm from the monitor (roughly an arm's length).",
       "Sitting too close or too far reduces eye-tracking accuracy and may cause calibration to fail."
     ]
   },
