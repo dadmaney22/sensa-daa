@@ -173,19 +173,28 @@ export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void 
     }
   };
 
- const handleExport = async () => {
-    // Re-save (idempotent) then stream the file to the browser.
+ const downloadRecording = async (endpoint: string, fallbackName: string) => {
+    // Re-save (idempotent) then stream the requested file to the browser.
     await fetch('http://localhost:8000/api/record/save', { method: 'POST' });
-    const res = await fetch('http://localhost:8000/api/record/download');
+    const res = await fetch(endpoint);
     if (!res.ok) return;
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = saveData?.filename ?? 'plux_recording.h5'; // <--- UPDATED THIS LINE
+    // Prefer the server-provided filename from Content-Disposition when present.
+    const disp = res.headers.get('Content-Disposition');
+    const match = disp?.match(/filename=([^;]+)/);
+    a.download = match ? match[1].trim() : fallbackName;
     a.click();
     URL.revokeObjectURL(url);
   };
+
+  const handleExport = () =>
+    downloadRecording('http://localhost:8000/api/record/download', saveData?.filename ?? 'plux_recording.h5');
+
+  const handleExportOpenSignals = () =>
+    downloadRecording('http://localhost:8000/api/record/download/opensignals', 'plux_recording_opensignals.h5');
 
   return (
     <div className="animate-in fade-in slide-in-from-right-4 duration-300">
@@ -637,12 +646,18 @@ export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void 
               )}
 
               {recordingState === 'done' && (
-                <div className="flex gap-3 justify-end pt-4 animate-in fade-in zoom-in-95 duration-300">
+                <div className="flex flex-wrap gap-3 justify-end pt-4 animate-in fade-in zoom-in-95 duration-300">
                   <button
                     onClick={handleExport}
                     className="rounded-lg border border-gray-300 px-6 py-3 text-sm font-medium text-gray-700 transition-all hover:bg-gray-50"
                   >
                     Export Baseline Recording
+                  </button>
+                  <button
+                    onClick={handleExportOpenSignals}
+                    className="rounded-lg border border-gray-300 px-6 py-3 text-sm font-medium text-gray-700 transition-all hover:bg-gray-50"
+                  >
+                    Export (OpenSignals format)
                   </button>
                   <button
                     onClick={onFinish}

@@ -133,6 +133,19 @@ async def record_download():
         raise HTTPException(status_code=404, detail="No recording saved yet — call /api/record/save first.")
     return FileResponse(
         path,
-        media_type="application/x-hdf5", # <--- UPDATED THIS LINE
+        media_type="application/x-hdf5",
+        headers={"Content-Disposition": f"attachment; filename={Path(path).name}"},
+    )
+
+
+@router.get("/api/record/download/opensignals")
+async def record_download_opensignals():
+    """Return the OpenSignals-format copy of the most recent recording."""
+    path = plux_manager.last_opensignals_path
+    if not path or not Path(path).exists():
+        raise HTTPException(status_code=404, detail="No OpenSignals-format recording available — call /api/record/save first.")
+    return FileResponse(
+        path,
+        media_type="application/x-hdf5",
         headers={"Content-Disposition": f"attachment; filename={Path(path).name}"},
     )

@@ -358,6 +358,86 @@ def _baseline_eeg(vals: list[float]) -> dict:
     }
 
 
+def _write_opensignals_h5(
+    filepath: Path,
+    rows: list[dict],
+    keys: list[str],
+    channel_map: dict[str, int],
+    device_address: str,
+    t0: float,
+) -> None:
+    """Write the recording in OpenSignals' HDF5 layout.
+
+    Mirrors what the OpenSignals software produces for a biosignalsplux hub so
+    the file can be read by biosignalsnotebooks and the same analysis scripts
+    used for native OpenSignals exports:
+
+        /<MAC>                      (group, with acquisition metadata attrs)
+        /<MAC>/raw/channel_<port>   (N, 1) uint32   one per acquired channel
+        /<MAC>/raw/nSeq             (N, 1) int32    0..N-1 sample counter
+        /<MAC>/digital/digital_1    (N, 1) uint16   zeros (no digital input)
+
+    The multi-resolution `/support` zoom levels, `/events`, `/plugin` groups and
+    the `md5TXT` checksum that the OpenSignals *desktop GUI* uses are NOT
+    written — they are GUI-only and not needed for analysis.
+    """
+    n = len(rows)
+
+    # OpenSignals strips the "BTH"/"BLE" transport prefix for the group/device
+    # name but keeps the full string under "device connection".
+    mac = device_address
+    for prefix in ("BTH", "BLE", "USB"):
+        if mac.startswith(prefix):
+            mac = mac[len(prefix):]
+            break
+
+    # Acquired ports, in ascending order, matching channel_map.
+    ports = sorted({channel_map[k] for k in keys if k in channel_map})
+    # port -> sensor key, so we can pull the right *_raw column for each channel.
+    port_to_key = {channel_map[k]: k for k in keys if k in channel_map}
+
+    dt = datetime.fromtimestamp(t0) if rows else datetime.now()
+    duration_s = int(round(n / SAMPLING_RATE)) if n else 0
+
+    with h5py.File(filepath, "w") as f:
+        f.attrs["version"] = "1"
+
+        grp = f.create_group(mac)
+        grp.attrs["channels"] = np.array(ports, dtype=np.int32)
+        grp.attrs["comments"] = ""
+        grp.attrs["date"] = f"{dt.year}-{dt.month}-{dt.day}"
+        grp.attrs["device"] = "biosignalsplux"
+        grp.attrs["device connection"] = device_address
+        grp.attrs["device name"] = mac
+        grp.attrs["digital IO"] = np.array([0, 1], dtype=np.int32)
+        grp.attrs["duration"] = f"{duration_s}s"
+        grp.attrs["firmware version"] = np.int32(0)
+        grp.attrs["keywords"] = ""
+        grp.attrs["macaddress"] = mac
+        grp.attrs["mode"] = np.int32(0)
+        grp.attrs["nsamples"] = np.int32(n)
+        grp.attrs["resolution"] = np.array([RESOLUTION_BITS] * len(ports), dtype=np.int32)
+        grp.attrs["sampling rate"] = np.int32(SAMPLING_RATE)
+        grp.attrs["sync interval"] = np.int32(2)
+        grp.attrs["time"] = f"{dt.hour}:{dt.minute}:{dt.second}.{dt.microsecond // 1000:03d}"
+
+        raw = grp.create_group("raw")
+        # nSeq: OpenSignals stores a per-acquisition sample counter as (N, 1).
+        raw.create_dataset("nSeq", data=np.arange(n, dtype=np.int32).reshape(-1, 1))
+
+        for port in ports:
+            key = port_to_key[port]
+            vals = [r.get(f"{key}_raw") for r in rows]
+            vals = [v if v is not None else 0 for v in vals]
+            arr = np.array(vals, dtype=np.uint32).reshape(-1, 1)
+            raw.create_dataset(f"channel_{port}", data=arr)
+
+        # A single zeroed digital channel keeps the layout faithful; Sensa does
+        # not capture digital inputs.
+        dig = grp.create_group("digital")
+        dig.create_dataset("digital_1", data=np.zeros((n, 1), dtype=np.uint16))
+
+
 class PluxManager:
     """Owns the single shared hub acquisition session."""
 
@@ -384,6 +464,7 @@ class PluxManager:
         self._recording = False
         self._recorded_rows: list[dict] = []
         self._last_save_path: Optional[str] = None
+        self._last_opensignals_path: Optional[str] = None
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -618,13 +699,34 @@ class PluxManager:
 
         logger.info("PLUX recording saved to HDF5: %s (%d rows)", filepath, len(rows))
         self._last_save_path = str(filepath)
-        return {"filename": filepath.name, "filepath": str(filepath), "rows": len(rows)}
+
+        # Also write an OpenSignals-compatible copy so the same recording can be
+        # opened by biosignalsnotebooks / OpenSignals-style analysis pipelines.
+        os_path = output_dir / f"plux_recording_{ts}_opensignals.h5"
+        try:
+            _write_opensignals_h5(os_path, rows, keys, channel_map, device_address, t0)
+            self._last_opensignals_path = str(os_path)
+            logger.info("OpenSignals-format copy saved: %s", os_path)
+        except Exception:  # noqa: BLE001
+            self._last_opensignals_path = None
+            logger.exception("Failed to write OpenSignals-format copy")
+
+        return {
+            "filename": filepath.name,
+            "filepath": str(filepath),
+            "rows": len(rows),
+            "opensignals_filename": os_path.name if self._last_opensignals_path else None,
+        }
 
     # -- last save ---------------------------------------------------------
 
     @property
     def last_save_path(self) -> Optional[str]:
         return self._last_save_path
+
+    @property
+    def last_opensignals_path(self) -> Optional[str]:
+        return self._last_opensignals_path
 
     # -- status ------------------------------------------------------------
 
