@@ -12,6 +12,86 @@ const SENSORS = [
   { id: 'eeg', name: 'Brain Wave Sensor (EEG)', device: 'Biosignalplux', icon: Brain },
 ];
 
+// ---------------------------------------------------------------------------
+// Confetti
+// ---------------------------------------------------------------------------
+function ConfettiPiece({ style }: { style: React.CSSProperties }) {
+  return <div className="absolute top-0 rounded-sm opacity-90" style={style} />;
+}
+
+function Confetti() {
+  const pieces = Array.from({ length: 80 }, (_, i) => {
+    const colours = ['#7C3AED','#10B981','#F59E0B','#EF4444','#3B82F6','#EC4899','#14B8A6'];
+    const size = 6 + Math.random() * 8;
+    return {
+      id: i,
+      style: {
+        left: `${Math.random() * 100}%`,
+        width: size,
+        height: size,
+        backgroundColor: colours[i % colours.length],
+        transform: `rotate(${Math.random() * 360}deg)`,
+        animation: `confetti-fall ${1.5 + Math.random() * 2}s ease-in ${Math.random() * 0.8}s forwards`,
+      } as React.CSSProperties,
+    };
+  });
+
+  return (
+    <>
+      <style>{`
+        @keyframes confetti-fall {
+          0%   { transform: translateY(-20px) rotate(0deg); opacity: 1; }
+          100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+        }
+      `}</style>
+      <div className="pointer-events-none fixed inset-0 z-50 overflow-hidden">
+        {pieces.map(p => <ConfettiPiece key={p.id} style={p.style} />)}
+      </div>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Thank-you screen
+// ---------------------------------------------------------------------------
+function ThankYouScreen() {
+  const [showConfetti, setShowConfetti] = useState(true);
+  useEffect(() => {
+    const t = setTimeout(() => setShowConfetti(false), 4000);
+    return () => clearTimeout(t);
+  }, []);
+
+  return (
+    <>
+      {showConfetti && <Confetti />}
+      <div className="flex min-h-[60vh] flex-col items-center justify-center gap-8 animate-in fade-in zoom-in-95 duration-500 text-center px-4">
+        <div className="flex h-24 w-24 items-center justify-center rounded-full bg-green-100 text-5xl">
+          🎉
+        </div>
+        <div className="space-y-3">
+          <h2 className="text-3xl font-bold text-gray-900">Testing Complete!</h2>
+          <p className="text-lg text-gray-600 max-w-md">
+            You've successfully completed the testing session. Thank you for your participation!
+          </p>
+        </div>
+        <div className="rounded-xl border border-green-200 bg-green-50 p-6 max-w-sm w-full text-left space-y-2">
+          <p className="text-sm font-semibold text-green-800">What happens next</p>
+          <ul className="space-y-1 text-sm text-green-700">
+            <li>✓ Your session data has been saved</li>
+            <li>✓ Sensor recordings are ready for export</li>
+            <li>✓ The experimenter will now debrief you</li>
+          </ul>
+        </div>
+        <p className="text-sm text-gray-400">Please remain seated until the experimenter returns.</p>
+      </div>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
+
 export default function CalibrationStep({
   onContinue,
   onUpdateHeader,
@@ -22,6 +102,9 @@ export default function CalibrationStep({
   const [calibratedSensors, setCalibratedSensors] = useState<string[]>([]);
   const [activeSensorId, setActiveSensorId] = useState<string | null>(null);
   const [calibrationPhase, setCalibrationPhase] = useState<'empty' | 'active'>('empty');
+  const [showThankYou, setShowThankYou] = useState(false);
+
+  const coreCalibrated = ['eye', 'gsr'].every(id => calibratedSensors.includes(id));
 
   useEffect(() => {
     if (activeSensorId) {
@@ -107,7 +190,12 @@ export default function CalibrationStep({
   }
 
   // ==========================================
-  // VIEW 1: CALIBRATION OVERVIEW LIST 
+  // THANK YOU SCREEN
+  // ==========================================
+  if (showThankYou) return <ThankYouScreen />;
+
+  // ==========================================
+  // VIEW 1: CALIBRATION OVERVIEW LIST
   // ==========================================
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
@@ -154,12 +242,23 @@ export default function CalibrationStep({
         })}
       </div>
 
-      <div className="flex justify-end pt-4">
-        <button 
+      <div className="flex items-center justify-between pt-4">
+        <button
+          onClick={() => setShowThankYou(true)}
+          disabled={!coreCalibrated}
+          className={`rounded-lg px-6 py-2.5 text-sm font-medium transition-all ${
+            coreCalibrated
+              ? 'bg-green-600 text-white hover:bg-green-700'
+              : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+          }`}
+        >
+          End Testing Task
+        </button>
+        <button
           onClick={onContinue}
           className="rounded-lg bg-black px-6 py-2.5 text-sm font-medium text-white hover:bg-gray-800 transition-colors"
         >
-          Start Sensor Calibration
+          Proceed to Recording Data
         </button>
       </div>
 
