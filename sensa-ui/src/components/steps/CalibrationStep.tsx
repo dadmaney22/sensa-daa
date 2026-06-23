@@ -12,12 +12,14 @@ const SENSORS = [
   { id: 'eeg', name: 'Brain Wave Sensor (EEG)', device: 'Biosignalplux', icon: Brain },
 ];
 
-export default function CalibrationStep({ 
+export default function CalibrationStep({
   onContinue,
-  onUpdateHeader 
-}: { 
+  onUpdateHeader,
+  onUpdateBack,
+}: {
   onContinue: () => void;
   onUpdateHeader: (header: { title: string, subtitle: string } | null) => void;
+  onUpdateBack: (fn: (() => void) | null) => void;
 }) {
   const [calibratedSensors, setCalibratedSensors] = useState<string[]>([]);
   const [activeSensorId, setActiveSensorId] = useState<string | null>(null);
@@ -47,7 +49,8 @@ export default function CalibrationStep({
     if (activeSensorId && !calibratedSensors.includes(activeSensorId)) {
       setCalibratedSensors(prev => [...prev, activeSensorId]);
     }
-    setActiveSensorId(null); 
+    setActiveSensorId(null);
+    onUpdateBack(null);
   };
 
 
@@ -58,7 +61,7 @@ export default function CalibrationStep({
   if (activeSensorId) {
     // ROUTE TO EYE TRACKER COMPONENT
     if (activeSensorId === 'eye') {
-      return <EyeTrackerCalibrationFlow onFinish={handleFinishCalibration} />;
+      return <EyeTrackerCalibrationFlow onFinish={handleFinishCalibration} onUpdateBack={onUpdateBack} />;
     }
 
     // ROUTE TO EEG COMPONENT
@@ -73,7 +76,7 @@ export default function CalibrationStep({
 
     // ROUTE TO GSR/EDA COMPONENT
     if (activeSensorId === 'gsr') {
-      return <EDACalibrationFlow onFinish={handleFinishCalibration} />;
+      return <EDACalibrationFlow onFinish={handleFinishCalibration} onUpdateBack={onUpdateBack} />;
     }
 
     // FALLBACK FOR THE OTHER SENSORS 

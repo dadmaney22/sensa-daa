@@ -8,12 +8,28 @@ import edaPlacementSvg from '../../assets/EDAplac1.png';
 import edaDevicePng from '../../assets/eegHub.png';
 
 
-export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void }) {
+export default function EDACalibrationFlow({
+  onFinish,
+  onUpdateBack,
+}: {
+  onFinish: () => void;
+  onUpdateBack?: (fn: (() => void) | null) => void;
+}) {
   const [step, setStep] = useState(1);
+
+  useEffect(() => {
+    if (!onUpdateBack) return;
+    if (step === 1) {
+      onUpdateBack(() => onFinish);
+    } else {
+      onUpdateBack(() => () => setStep(s => s - 1));
+    }
+    return () => onUpdateBack(null);
+  }, [step, onUpdateBack, onFinish]);
   
   // Step 1 State (Note: EDA only has 2 placement checkboxes, unlike ECG's 3)
   const [step1Checks, setStep1Checks] = useState<string[]>([]);
-  const step1Required = ['prep1', 'prep2', 'place1', 'place2'];
+  const step1Required = ['prep1', 'prep2', 'place0', 'place1', 'place2'];
   
   // Step 2 State
   const [step2Checks, setStep2Checks] = useState<string[]>([]);
@@ -216,13 +232,16 @@ export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void 
             {[1, 2, 3, 4].map((i) => (
               <div key={i} className="flex items-center">
                 <div className="flex flex-col items-center gap-2">
-                  <div className={`flex h-6 w-6 items-center justify-center rounded-full border-2 ${
-                    step > i ? 'border-violet-600 bg-violet-600 text-white' : 
-                    step === i ? 'border-violet-600 bg-white text-violet-600' : 
-                    'border-gray-300 bg-white'
-                  }`}>
+                  <button
+                    onClick={() => i <= step && setStep(i)}
+                    className={`flex h-6 w-6 items-center justify-center rounded-full border-2 transition-colors ${
+                      step > i ? 'border-violet-600 bg-violet-600 text-white cursor-pointer hover:bg-violet-700' :
+                      step === i ? 'border-violet-600 bg-white text-violet-600 cursor-default' :
+                      'border-gray-300 bg-white cursor-not-allowed'
+                    }`}
+                  >
                     {step > i ? <Check className="h-3 w-3" /> : <div className={`h-2 w-2 rounded-full ${step === i ? 'bg-violet-600' : 'bg-transparent'}`} />}
-                  </div>
+                  </button>
                   <span className="text-[10px] font-medium text-gray-500 uppercase">
                     {i === 1 && 'Placement'}
                     {i === 2 && 'Connect'}
@@ -270,6 +289,10 @@ export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void 
               <div>
                 <h4 className="mb-2 rounded bg-gray-200 px-3 py-1 text-xs font-bold uppercase text-gray-700">Place Electrodes</h4>
                 <div className="space-y-2 px-1">
+                  <label className="flex cursor-pointer items-center gap-3 text-sm text-gray-700 hover:text-gray-900">
+                    <input type="checkbox" checked={step1Checks.includes('place0')} onChange={() => toggleCheck('place0', step1Checks, setStep1Checks)} className="h-4 w-4 rounded border-gray-300 text-violet-600 focus:ring-violet-600" />
+                    Use the non-dominant hand for electrode placement
+                  </label>
                   <label className="flex cursor-pointer items-center gap-3 text-sm text-gray-700 hover:text-gray-900">
                     <input type="checkbox" checked={step1Checks.includes('place1')} onChange={() => toggleCheck('place1', step1Checks, setStep1Checks)} className="h-4 w-4 rounded border-gray-300 text-violet-600 focus:ring-violet-600" />
                     Red (+) → index finger (palm side)
@@ -607,6 +630,19 @@ export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void 
                     </span>
                   </div>
                 </div>
+              </div>
+
+              <div className="rounded-lg border border-gray-200 bg-white">
+                <h4 className="border-b border-gray-200 bg-gray-100 px-4 py-2 text-xs font-bold uppercase text-gray-700 flex items-center gap-2">
+                  <div className="flex h-4 w-4 items-center justify-center rounded bg-gray-300 text-[10px] font-bold text-gray-600">-</div>
+                  Instructions
+                </h4>
+                <ul className="space-y-2 p-4 text-sm text-gray-700">
+                  <li>1. Sit still and keep hands relaxed on a flat surface</li>
+                  <li>2. Avoid any hand or finger movement during recording</li>
+                  <li>3. Breathe normally and look at the circle</li>
+                  <li>4. Do not talk or shift position until the timer ends</li>
+                </ul>
               </div>
 
               {recordingState === 'done' && baseline?.stable === false && (

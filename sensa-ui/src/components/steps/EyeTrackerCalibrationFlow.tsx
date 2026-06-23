@@ -10,8 +10,24 @@ const DOT_COORDINATES = [
   { x: 0.9, y: 0.9 }, // Dot 4: Bottom-Right
 ];
 
-export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () => void }) {
+export default function EyeTrackerCalibrationFlow({
+  onFinish,
+  onUpdateBack,
+}: {
+  onFinish: () => void;
+  onUpdateBack?: (fn: (() => void) | null) => void;
+}) {
   const [step, setStep] = useState(1);
+
+  useEffect(() => {
+    if (!onUpdateBack) return;
+    if (step === 1) {
+      onUpdateBack(() => onFinish);
+    } else {
+      onUpdateBack(() => () => setStep(s => s - 1));
+    }
+    return () => onUpdateBack(null);
+  }, [step, onUpdateBack, onFinish]);
 
   const [positionReady, setPositionReady] = useState(false);
   const [liveDistance, setLiveDistance] = useState<number | null>(null);
@@ -335,13 +351,16 @@ export default function EyeTrackerCalibrationFlow({ onFinish }: { onFinish: () =
               {[1, 2, 3, 4].map((i) => (
                 <div key={i} className="flex items-center">
                   <div className="flex flex-col items-center gap-2">
-                    <div className={`flex h-6 w-6 items-center justify-center rounded-full border-2 ${
-                      step > i ? 'border-violet-600 bg-violet-600 text-white' :
-                      step === i ? 'border-violet-600 bg-white text-violet-600' :
-                      'border-gray-300 bg-white'
-                    }`}>
+                    <button
+                      onClick={() => i <= step && setStep(i)}
+                      className={`flex h-6 w-6 items-center justify-center rounded-full border-2 transition-colors ${
+                        step > i ? 'border-violet-600 bg-violet-600 text-white cursor-pointer hover:bg-violet-700' :
+                        step === i ? 'border-violet-600 bg-white text-violet-600 cursor-default' :
+                        'border-gray-300 bg-white cursor-not-allowed'
+                      }`}
+                    >
                       {step > i ? <Check className="h-3 w-3" /> : <div className={`h-2 w-2 rounded-full ${step === i ? 'bg-violet-600' : 'bg-transparent'}`} />}
-                    </div>
+                    </button>
                     <span className="text-[10px] font-medium text-gray-500 uppercase">
                       {i === 1 && 'Instructions'}
                       {i === 2 && 'Positioning'}
