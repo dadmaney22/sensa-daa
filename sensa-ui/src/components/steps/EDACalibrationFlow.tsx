@@ -8,24 +8,8 @@ import edaPlacementSvg from '../../assets/EDAplac1.png';
 import edaDevicePng from '../../assets/eegHub.png';
 
 
-export default function EDACalibrationFlow({
-  onFinish,
-  onUpdateBack,
-}: {
-  onFinish: () => void;
-  onUpdateBack?: (fn: (() => void) | null) => void;
-}) {
+export default function EDACalibrationFlow({ onFinish }: { onFinish: () => void }) {
   const [step, setStep] = useState(1);
-
-  useEffect(() => {
-    if (!onUpdateBack) return;
-    if (step === 1) {
-      onUpdateBack(() => onFinish);
-    } else {
-      onUpdateBack(() => () => setStep(s => s - 1));
-    }
-    return () => onUpdateBack(null);
-  }, [step, onUpdateBack, onFinish]);
   
   // Step 1 State (Note: EDA only has 2 placement checkboxes, unlike ECG's 3)
   const [step1Checks, setStep1Checks] = useState<string[]>([]);
@@ -232,16 +216,13 @@ export default function EDACalibrationFlow({
             {[1, 2, 3, 4].map((i) => (
               <div key={i} className="flex items-center">
                 <div className="flex flex-col items-center gap-2">
-                  <button
-                    onClick={() => i <= step && setStep(i)}
-                    className={`flex h-6 w-6 items-center justify-center rounded-full border-2 transition-colors ${
-                      step > i ? 'border-violet-600 bg-violet-600 text-white cursor-pointer hover:bg-violet-700' :
-                      step === i ? 'border-violet-600 bg-white text-violet-600 cursor-default' :
-                      'border-gray-300 bg-white cursor-not-allowed'
-                    }`}
-                  >
+                  <div className={`flex h-6 w-6 items-center justify-center rounded-full border-2 ${
+                    step > i ? 'border-violet-600 bg-violet-600 text-white' :
+                    step === i ? 'border-violet-600 bg-white text-violet-600' :
+                    'border-gray-300 bg-white'
+                  }`}>
                     {step > i ? <Check className="h-3 w-3" /> : <div className={`h-2 w-2 rounded-full ${step === i ? 'bg-violet-600' : 'bg-transparent'}`} />}
-                  </button>
+                  </div>
                   <span className="text-[10px] font-medium text-gray-500 uppercase">
                     {i === 1 && 'Placement'}
                     {i === 2 && 'Connect'}

@@ -15,11 +15,9 @@ const SENSORS = [
 export default function CalibrationStep({
   onContinue,
   onUpdateHeader,
-  onUpdateBack,
 }: {
   onContinue: () => void;
   onUpdateHeader: (header: { title: string, subtitle: string } | null) => void;
-  onUpdateBack: (fn: (() => void) | null) => void;
 }) {
   const [calibratedSensors, setCalibratedSensors] = useState<string[]>([]);
   const [activeSensorId, setActiveSensorId] = useState<string | null>(null);
@@ -50,7 +48,6 @@ export default function CalibrationStep({
       setCalibratedSensors(prev => [...prev, activeSensorId]);
     }
     setActiveSensorId(null);
-    onUpdateBack(null);
   };
 
 
@@ -61,7 +58,7 @@ export default function CalibrationStep({
   if (activeSensorId) {
     // ROUTE TO EYE TRACKER COMPONENT
     if (activeSensorId === 'eye') {
-      return <EyeTrackerCalibrationFlow onFinish={handleFinishCalibration} onUpdateBack={onUpdateBack} />;
+      return <EyeTrackerCalibrationFlow onFinish={handleFinishCalibration} />;
     }
 
     // ROUTE TO EEG COMPONENT
@@ -76,7 +73,7 @@ export default function CalibrationStep({
 
     // ROUTE TO GSR/EDA COMPONENT
     if (activeSensorId === 'gsr') {
-      return <EDACalibrationFlow onFinish={handleFinishCalibration} onUpdateBack={onUpdateBack} />;
+      return <EDACalibrationFlow onFinish={handleFinishCalibration} />;
     }
 
     // FALLBACK FOR THE OTHER SENSORS 

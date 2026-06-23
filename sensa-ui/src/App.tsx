@@ -22,7 +22,6 @@ export default function App() {
   const [currentStep, setCurrentStep] = useState(1);
   const totalSteps = 13;
   const [headerOverride, setHeaderOverride] = useState<{title: string, subtitle: string} | null>(null);
-  const [backOverride, setBackOverride] = useState<(() => void) | null>(null);
   const [studyConfig, setStudyConfig] = useState<StudyConfig>({
     studyName: '',
     studyType: '',
@@ -61,7 +60,6 @@ export default function App() {
       title={headerOverride?.title || currentContent.title}
       subtitle={headerOverride?.subtitle || currentContent.subtitle}
       onBack={() => {
-        if (backOverride) { backOverride(); return; }
         if (currentStep === 1) {
           setAppState('home');
         } else {
@@ -107,7 +105,6 @@ export default function App() {
         <CalibrationStep
           onContinue={() => setCurrentStep(7)}
           onUpdateHeader={setHeaderOverride}
-          onUpdateBack={(fn) => setBackOverride(fn ? () => fn : null)}
         />
       )}
 
