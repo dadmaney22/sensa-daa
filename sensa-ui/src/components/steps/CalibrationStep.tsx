@@ -93,18 +93,16 @@ function ThankYouScreen() {
 // ---------------------------------------------------------------------------
 
 export default function CalibrationStep({
-  onContinue: _onContinue,
+  onContinue,
   onUpdateHeader,
 }: {
   onContinue: () => void;
   onUpdateHeader: (header: { title: string, subtitle: string } | null) => void;
 }) {
-  const [calibratedSensors, setCalibratedSensors] = useState<string[]>([]);
+  const [calibratedSensors, setCalibratedSensors] = useState<string[]>(['eye', 'gsr', 'ecg', 'eeg']); // TEMP: preview-only seed, revert before commit
   const [activeSensorId, setActiveSensorId] = useState<string | null>(null);
   const [calibrationPhase, setCalibrationPhase] = useState<'empty' | 'active'>('empty');
-  const [showThankYou, setShowThankYou] = useState(false);
-
-  const coreCalibrated = ['eye', 'gsr'].every(id => calibratedSensors.includes(id));
+  const [showThankYou] = useState(false);
 
   useEffect(() => {
     if (activeSensorId) {
@@ -242,21 +240,10 @@ export default function CalibrationStep({
         })}
       </div>
 
-      <div className="flex items-center justify-between pt-4">
+      <div className="flex justify-end pt-4">
         <button
-          onClick={() => setShowThankYou(true)}
-          disabled={!coreCalibrated}
-          className={`rounded-lg px-6 py-2.5 text-sm font-medium transition-all ${
-            coreCalibrated
-              ? 'bg-green-600 text-white hover:bg-green-700'
-              : 'bg-gray-100 text-gray-400 cursor-not-allowed'
-          }`}
-        >
-          End Testing Task
-        </button>
-        <button
-          disabled
-          className="rounded-lg bg-gray-100 px-6 py-2.5 text-sm font-medium text-gray-400 cursor-not-allowed"
+          onClick={onContinue}
+          className="rounded-lg bg-black px-6 py-2.5 text-sm font-medium text-white hover:bg-gray-800 transition-colors"
         >
           Proceed to Recording Data
         </button>
